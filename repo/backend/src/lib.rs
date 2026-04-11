@@ -27,6 +27,8 @@ pub struct AppState {
     pub encryption_key: Arc<[u8; 32]>,
     pub signing_key: Arc<String>,
     pub rate_limit: RateLimitState,
+    pub evidence_dir: Arc<std::path::PathBuf>,
+    pub backup_dir: Arc<std::path::PathBuf>,
 }
 
 /// Derive a 32-byte AES-256 key from an arbitrary-length string by truncating or

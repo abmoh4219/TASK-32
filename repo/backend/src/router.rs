@@ -18,6 +18,7 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::handlers::auth as auth_handlers;
 use crate::handlers::knowledge as knowledge_handlers;
+use crate::handlers::outcomes as outcome_handlers;
 use crate::middleware::csrf::csrf_middleware;
 use crate::middleware::rate_limit::rate_limit_middleware;
 use crate::middleware::security_headers::security_headers_middleware;
@@ -89,6 +90,40 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/knowledge/questions/:id/link",
             post(knowledge_handlers::link_question),
+        )
+        // Outcomes
+        .route(
+            "/api/outcomes",
+            get(outcome_handlers::list_outcomes).post(outcome_handlers::create_outcome),
+        )
+        .route("/api/outcomes/:id", get(outcome_handlers::get_outcome))
+        .route(
+            "/api/outcomes/:id/contributors",
+            post(outcome_handlers::add_contributor),
+        )
+        .route(
+            "/api/outcomes/:id/contributors/:cid",
+            axum::routing::delete(outcome_handlers::remove_contributor),
+        )
+        .route(
+            "/api/outcomes/:id/submit",
+            post(outcome_handlers::submit_outcome),
+        )
+        .route(
+            "/api/outcomes/:id/approve",
+            post(outcome_handlers::approve_outcome),
+        )
+        .route(
+            "/api/outcomes/:id/reject",
+            post(outcome_handlers::reject_outcome),
+        )
+        .route(
+            "/api/outcomes/:id/evidence",
+            post(outcome_handlers::upload_evidence),
+        )
+        .route(
+            "/api/outcomes/:id/compare/:other_id",
+            get(outcome_handlers::compare_outcomes),
         )
         // Layered: CSRF on mutations, then rate limit, then session loader.
         // Order matters: outermost (last `.layer`) runs first.

@@ -13,11 +13,16 @@ use sqlx::SqlitePool;
 #[allow(dead_code)]
 pub async fn setup_test_app() -> (axum::Router, AppState) {
     let pool = setup_test_db().await;
+    let tmp_root = std::env::temp_dir().join(format!("scholarvault-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(tmp_root.join("evidence")).ok();
+    std::fs::create_dir_all(tmp_root.join("backups")).ok();
     let state = AppState {
         db: pool.clone(),
         encryption_key: Arc::new(derive_key("test-encryption-key-exactly-32bytes")),
         signing_key: Arc::new("test-signing-key".to_string()),
         rate_limit: RateLimitState::new(60),
+        evidence_dir: Arc::new(tmp_root.join("evidence")),
+        backup_dir: Arc::new(tmp_root.join("backups")),
     };
     let app = build_router(state.clone());
     (app, state)

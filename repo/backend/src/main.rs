@@ -40,11 +40,22 @@ async fn main() -> AppResult<()> {
 
     db::run_migrations(&pool, &migrations_dir).await?;
 
+    let evidence_dir = std::path::PathBuf::from(
+        std::env::var("EVIDENCE_DIR").unwrap_or_else(|_| "/app/evidence".to_string()),
+    );
+    let backup_dir = std::path::PathBuf::from(
+        std::env::var("BACKUP_DIR").unwrap_or_else(|_| "/app/backups".to_string()),
+    );
+    let _ = std::fs::create_dir_all(&evidence_dir);
+    let _ = std::fs::create_dir_all(&backup_dir);
+
     let state = AppState {
         db: pool,
         encryption_key: Arc::new(derive_key(&encryption_key_material)),
         signing_key: Arc::new(signing_key),
         rate_limit: RateLimitState::new(60),
+        evidence_dir: Arc::new(evidence_dir),
+        backup_dir: Arc::new(backup_dir),
     };
 
     let app = build_router(state);

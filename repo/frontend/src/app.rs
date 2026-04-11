@@ -7,6 +7,7 @@ use leptos_router::{Route, Router, Routes};
 
 use crate::pages::knowledge::KnowledgePage;
 use crate::pages::login::LoginPage;
+use crate::pages::outcomes::OutcomesPage;
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -19,7 +20,7 @@ pub fn App() -> impl IntoView {
                     <Route path="/dashboard" view=move || view! { <PlaceholderDashboard label="User".to_string()/> }/>
                     <Route path="/admin" view=move || view! { <PlaceholderDashboard label="Administrator".to_string()/> }/>
                     <Route path="/knowledge" view=KnowledgePage/>
-                    <Route path="/outcomes" view=move || view! { <PlaceholderDashboard label="Reviewer".to_string()/> }/>
+                    <Route path="/outcomes" view=OutcomesPage/>
                     <Route path="/analytics" view=move || view! { <PlaceholderDashboard label="Finance Manager".to_string()/> }/>
                     <Route path="/store" view=move || view! { <PlaceholderDashboard label="Store Manager".to_string()/> }/>
                 </Routes>
