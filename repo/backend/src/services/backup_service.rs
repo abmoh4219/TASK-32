@@ -82,8 +82,11 @@ impl BackupService {
         Ok(rows)
     }
 
-    /// Create a backup bundle: tar(gz) of the live SQLite file + the evidence
-    /// directory, encrypted with AES-256-GCM, and recorded in `backup_records`.
+    /// Create two independent versioned backup artifacts per run: one for the
+    /// SQLite database and one for the uploaded-evidence directory. Each bundle
+    /// is AES-256-GCM encrypted and gets its own `backup_records` row tagged
+    /// with `artifact_kind`. Returns the database record for API compatibility
+    /// (the files record can be listed via `list_backups`).
     pub async fn run_backup(&self) -> AppResult<BackupRecord> {
         fs::create_dir_all(&self.backup_dir).map_err(AppError::from)?;
         let now = Utc::now();
@@ -92,25 +95,60 @@ impl BackupService {
         } else {
             "daily"
         };
-        let id = Uuid::new_v4().to_string();
-        let bundle_name = format!(
-            "{}-{}-{}.bin",
+
+        // 1. Database artifact — contains scholarvault.db only.
+        let db_id = Uuid::new_v4().to_string();
+        let db_bundle_name = format!(
+            "{}-{}-db-{}.bin",
             now.format("%Y%m%d"),
             backup_type,
-            &id[..8]
+            &db_id[..8]
         );
-        let bundle_path = self.backup_dir.join(&bundle_name);
-
-        // Build the tar.gz in memory.
-        let mut tar_buf: Vec<u8> = Vec::new();
+        let db_bundle_path = self.backup_dir.join(&db_bundle_name);
+        let mut db_tar_buf: Vec<u8> = Vec::new();
         {
-            let encoder = GzEncoder::new(&mut tar_buf, Compression::default());
+            let encoder = GzEncoder::new(&mut db_tar_buf, Compression::default());
             let mut tar = tar::Builder::new(encoder);
             if self.db_path.exists() {
                 let mut file = File::open(&self.db_path).map_err(AppError::from)?;
                 tar.append_file("scholarvault.db", &mut file)
                     .map_err(AppError::from)?;
             }
+            tar.into_inner()
+                .map_err(AppError::from)?
+                .finish()
+                .map_err(AppError::from)?;
+        }
+        let db_encrypted = encryption::encrypt_bytes(&db_tar_buf, &self.encryption_key)?;
+        fs::write(&db_bundle_path, &db_encrypted).map_err(AppError::from)?;
+        let db_hash = hex::encode(Sha256::digest(&db_encrypted));
+        sqlx::query(
+            "INSERT INTO backup_records (id, backup_type, bundle_path, sha256_hash, status, size_bytes, created_at, artifact_kind) VALUES (?, ?, ?, ?, 'complete', ?, ?, 'database')",
+        )
+        .bind(&db_id)
+        .bind(backup_type)
+        .bind(db_bundle_path.to_string_lossy().to_string())
+        .bind(&db_hash)
+        .bind(db_encrypted.len() as i64)
+        .bind(now.to_rfc3339())
+        .execute(&self.db)
+        .await?;
+
+        // 2. Files artifact — contains only the evidence directory. Recorded
+        // as an independent versioned row so it can be verified and restored
+        // separately from the database bundle.
+        let files_id = Uuid::new_v4().to_string();
+        let files_bundle_name = format!(
+            "{}-{}-files-{}.bin",
+            now.format("%Y%m%d"),
+            backup_type,
+            &files_id[..8]
+        );
+        let files_bundle_path = self.backup_dir.join(&files_bundle_name);
+        let mut files_tar_buf: Vec<u8> = Vec::new();
+        {
+            let encoder = GzEncoder::new(&mut files_tar_buf, Compression::default());
+            let mut tar = tar::Builder::new(encoder);
             if self.evidence_dir.exists() {
                 tar.append_dir_all("evidence", &self.evidence_dir)
                     .map_err(AppError::from)?;
@@ -120,20 +158,18 @@ impl BackupService {
                 .finish()
                 .map_err(AppError::from)?;
         }
-
-        // Encrypt and write.
-        let encrypted = encryption::encrypt_bytes(&tar_buf, &self.encryption_key)?;
-        fs::write(&bundle_path, &encrypted).map_err(AppError::from)?;
-        let hash = hex::encode(Sha256::digest(&encrypted));
-
+        let files_encrypted =
+            encryption::encrypt_bytes(&files_tar_buf, &self.encryption_key)?;
+        fs::write(&files_bundle_path, &files_encrypted).map_err(AppError::from)?;
+        let files_hash = hex::encode(Sha256::digest(&files_encrypted));
         sqlx::query(
-            "INSERT INTO backup_records (id, backup_type, bundle_path, sha256_hash, status, size_bytes, created_at) VALUES (?, ?, ?, ?, 'complete', ?, ?)",
+            "INSERT INTO backup_records (id, backup_type, bundle_path, sha256_hash, status, size_bytes, created_at, artifact_kind) VALUES (?, ?, ?, ?, 'complete', ?, ?, 'files')",
         )
-        .bind(&id)
+        .bind(&files_id)
         .bind(backup_type)
-        .bind(bundle_path.to_string_lossy().to_string())
-        .bind(&hash)
-        .bind(encrypted.len() as i64)
+        .bind(files_bundle_path.to_string_lossy().to_string())
+        .bind(&files_hash)
+        .bind(files_encrypted.len() as i64)
         .bind(now.to_rfc3339())
         .execute(&self.db)
         .await?;
@@ -141,7 +177,7 @@ impl BackupService {
         let row = sqlx::query_as::<_, BackupRecord>(
             "SELECT * FROM backup_records WHERE id = ?",
         )
-        .bind(&id)
+        .bind(&db_id)
         .fetch_one(&self.db)
         .await?;
         Ok(row)
@@ -185,6 +221,19 @@ impl BackupService {
             let mut archive = tar::Archive::new(decoder);
             archive.unpack(&sandbox_dir).map_err(AppError::from)?;
         }
+
+        // A files-only artifact has no database to probe — hash + successful
+        // unpack is the validation contract for that kind.
+        if row.artifact_kind.as_deref() == Some("files") {
+            return Ok(SandboxValidationReport {
+                hash_ok: true,
+                integrity_ok: true,
+                read_test_ok: true,
+                all_passed: true,
+                message: "files artifact: hash + unpack validated".into(),
+            });
+        }
+
         let sandbox_db_path = sandbox_dir.join("scholarvault.db");
         if !sandbox_db_path.exists() {
             return Ok(SandboxValidationReport {
@@ -324,6 +373,43 @@ impl BackupService {
         .fetch_optional(&self.db)
         .await?;
         row.ok_or_else(|| AppError::Internal("retention policy missing".into()))
+    }
+
+    /// Admin mutation: update the single active retention policy row.
+    /// Validates basic ranges and stamps the actor for audit.
+    pub async fn update_policy(
+        &self,
+        daily_retention: i64,
+        monthly_retention: i64,
+        preserve_financial: bool,
+        preserve_ip: bool,
+        actor_id: &str,
+    ) -> AppResult<RetentionPolicy> {
+        if !(1..=3650).contains(&daily_retention) {
+            return Err(AppError::Validation(
+                "daily_retention must be between 1 and 3650 days".into(),
+            ));
+        }
+        if !(1..=120).contains(&monthly_retention) {
+            return Err(AppError::Validation(
+                "monthly_retention must be between 1 and 120 months".into(),
+            ));
+        }
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            "UPDATE retention_policies SET daily_retention = ?, monthly_retention = ?, \
+             preserve_financial = ?, preserve_ip = ?, updated_at = ?, updated_by = ? \
+             WHERE id = 'default'",
+        )
+        .bind(daily_retention)
+        .bind(monthly_retention)
+        .bind(if preserve_financial { 1i64 } else { 0 })
+        .bind(if preserve_ip { 1i64 } else { 0 })
+        .bind(&now)
+        .bind(actor_id)
+        .execute(&self.db)
+        .await?;
+        self.get_active_policy().await
     }
 
     /// Returns true when `date` is the last day of its calendar month.

@@ -20,21 +20,32 @@ use crate::services::outcome_service::{
 };
 use crate::AppState;
 
+fn outcome_privileged(role: &str) -> bool {
+    matches!(
+        shared::UserRole::from_str(role),
+        Some(shared::UserRole::Administrator) | Some(shared::UserRole::Reviewer)
+    )
+}
+
 pub async fn list_outcomes(
     State(state): State<AppState>,
-    AuthenticatedUser(_user): AuthenticatedUser,
+    AuthenticatedUser(user): AuthenticatedUser,
 ) -> AppResult<Json<Vec<Outcome>>> {
     let svc = OutcomeService::new(state.db.clone());
-    Ok(Json(svc.list_outcomes(200).await?))
+    let privileged = outcome_privileged(&user.role);
+    Ok(Json(
+        svc.list_outcomes_scoped(&user.id, privileged, 200).await?,
+    ))
 }
 
 pub async fn get_outcome(
     State(state): State<AppState>,
-    AuthenticatedUser(_user): AuthenticatedUser,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(id): Path<String>,
 ) -> AppResult<Json<OutcomeWithEvidence>> {
     let svc = OutcomeService::new(state.db.clone());
-    let outcome = svc.get_outcome(&id).await?;
+    let privileged = outcome_privileged(&user.role);
+    let outcome = svc.get_outcome_scoped(&id, &user.id, privileged).await?;
     let contributors = svc.list_contributors(&id).await?;
     let file_svc = FileService::new(
         state.db.clone(),
@@ -248,12 +259,13 @@ pub async fn upload_evidence(
 
 pub async fn compare_outcomes(
     State(state): State<AppState>,
-    AuthenticatedUser(_user): AuthenticatedUser,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path((id_a, id_b)): Path<(String, String)>,
 ) -> AppResult<Json<CompareResult>> {
     let svc = OutcomeService::new(state.db.clone());
-    let a = svc.get_outcome(&id_a).await?;
-    let b = svc.get_outcome(&id_b).await?;
+    let privileged = outcome_privileged(&user.role);
+    let a = svc.get_outcome_scoped(&id_a, &user.id, privileged).await?;
+    let b = svc.get_outcome_scoped(&id_b, &user.id, privileged).await?;
     let title_score = strsim::jaro_winkler(&a.title, &b.title);
     let abstract_score = strsim::jaro_winkler(&a.abstract_snippet, &b.abstract_snippet);
     Ok(Json(CompareResult {

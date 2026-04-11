@@ -28,6 +28,12 @@ async fn main() -> AppResult<()> {
     // silently run with predictable key material. See audit issue #4.
     let encryption_key_material = require_secret("ENCRYPTION_KEY")?;
     let signing_key = require_secret("SIGNING_KEY")?;
+    // Transport-security gate. In production-like deployments we refuse to boot
+    // unless TLS is either terminated upstream by a trusted proxy
+    // (`TRUSTED_TLS_PROXY=true`) or the operator has explicitly opted in to a
+    // plain-HTTP path with `COOKIE_SECURE=false`. Dev/local keeps the loose
+    // default so `docker compose up` still works out of the box.
+    enforce_transport_security()?;
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "3000".to_string())
@@ -64,6 +70,7 @@ async fn main() -> AppResult<()> {
         evidence_dir: Arc::new(evidence_dir),
         backup_dir: Arc::new(backup_dir),
         reports_dir: Arc::new(reports_dir),
+        invalid_search_tracker: backend::services::abuse::InvalidSearchTracker::new(),
     };
 
     // Start the backup scheduler so the SPEC default 02:00 daily job is wired.
@@ -140,6 +147,36 @@ fn require_secret(var_name: &str) -> AppResult<String> {
         )));
     }
     Ok(value)
+}
+
+/// Refuse to boot in production-like deployments unless transport security is
+/// set up correctly. The rules are:
+///   • APP_ENV=dev|development|local|test   → always allowed (HTTP dev flow).
+///   • TRUSTED_TLS_PROXY=true                → allowed (TLS terminated upstream).
+///   • COOKIE_SECURE explicitly set          → allowed (operator made a choice).
+///   • otherwise                             → hard error.
+fn enforce_transport_security() -> AppResult<()> {
+    let app_env = std::env::var("APP_ENV").unwrap_or_default().to_ascii_lowercase();
+    let is_dev = matches!(
+        app_env.as_str(),
+        "dev" | "development" | "local" | "test"
+    );
+    if is_dev {
+        return Ok(());
+    }
+    let trusted_proxy = std::env::var("TRUSTED_TLS_PROXY")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false);
+    let cookie_secure_explicit = std::env::var("COOKIE_SECURE").is_ok();
+    if trusted_proxy || cookie_secure_explicit {
+        return Ok(());
+    }
+    Err(AppError::Internal(
+        "transport security not configured — set APP_ENV=dev for local HTTP, \
+         TRUSTED_TLS_PROXY=true when a reverse proxy terminates TLS, \
+         or COOKIE_SECURE=true/false to make an explicit choice"
+            .into(),
+    ))
 }
 
 /// Ensure the parent directory of a `sqlite://...` URL exists so SQLite can

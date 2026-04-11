@@ -19,6 +19,7 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 
 use crate::middleware::rate_limit::RateLimitState;
+use crate::services::abuse::InvalidSearchTracker;
 
 /// Shared application state passed into every Axum handler via the `State` extractor.
 #[derive(Clone)]
@@ -30,6 +31,7 @@ pub struct AppState {
     pub evidence_dir: Arc<std::path::PathBuf>,
     pub backup_dir: Arc<std::path::PathBuf>,
     pub reports_dir: Arc<std::path::PathBuf>,
+    pub invalid_search_tracker: InvalidSearchTracker,
 }
 
 /// Derive a 32-byte AES-256 key from an arbitrary-length string by truncating or

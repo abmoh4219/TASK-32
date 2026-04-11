@@ -209,6 +209,43 @@ async fn test_get_order_requires_auth_and_blocks_cross_user_access() {
 }
 
 #[tokio::test]
+async fn test_preview_checkout_requires_auth() {
+    // Regression: preview_checkout previously had no extractor, now aligned
+    // with checkout/list/get.
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "store", "Scholar2024!").await;
+
+    // Anonymous call with a forged matching csrf cookie+header but no session
+    // cookie must be rejected by the auth extractor (not just by CSRF).
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/store/checkout/preview")
+        .header("content-type", "application/json")
+        .header("cookie", "csrf_token=forged")
+        .header("X-CSRF-Token", "forged")
+        .body(Body::from(
+            json!({"items":[{"product_id":"prod-book-1","product_name":"X","quantity":1,"unit_price":10.0}]}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // Authenticated call → 200.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/store/checkout/preview")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({"items":[{"product_id":"prod-book-1","product_name":"X","quantity":1,"unit_price":10.0}]}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn test_reviewer_cannot_create_promotion() {
     let (app, _state) = setup_test_app().await;
     let (session, csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;

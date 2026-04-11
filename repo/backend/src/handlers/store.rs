@@ -125,6 +125,7 @@ pub async fn checkout(
 
 pub async fn preview_checkout(
     State(state): State<AppState>,
+    AuthenticatedUser(_user): AuthenticatedUser,
     Json(req): Json<CheckoutRequest>,
 ) -> AppResult<Json<CheckoutResult>> {
     let svc = StoreService::new(state.db.clone());

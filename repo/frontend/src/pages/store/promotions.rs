@@ -4,7 +4,7 @@ use leptos::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::api::store::{self as store_api, CreatePromotionInput};
-use crate::logic::promotion::{datetime_local_to_iso, format_discount, iso_to_mmddyyyy};
+use crate::logic::promotion::{format_discount, iso_to_mmddyyyy, mmddyyyy_12h_to_iso};
 
 #[component]
 pub fn PromotionsTab() -> impl IntoView {
@@ -14,8 +14,12 @@ pub fn PromotionsTab() -> impl IntoView {
     let (description, set_description) = create_signal(String::new());
     let (discount_value, set_discount_value) = create_signal(10.0_f64);
     let (discount_type, set_discount_type) = create_signal("percent".to_string());
-    let (effective_from_local, set_from_local) = create_signal(String::new());
-    let (effective_until_local, set_until_local) = create_signal(String::new());
+    let (from_date, set_from_date) = create_signal(String::new());
+    let (from_time, set_from_time) = create_signal(String::new());
+    let (from_meridiem, set_from_meridiem) = create_signal("AM".to_string());
+    let (until_date, set_until_date) = create_signal(String::new());
+    let (until_time, set_until_time) = create_signal(String::new());
+    let (until_meridiem, set_until_meridiem) = create_signal("PM".to_string());
     let (group, set_group) = create_signal(String::new());
     let (priority, set_priority) = create_signal(0i64);
     let (status, set_status) = create_signal::<Option<String>>(None);
@@ -25,8 +29,32 @@ pub fn PromotionsTab() -> impl IntoView {
             set_status.set(Some("Name is required".into()));
             return;
         }
-        let from = datetime_local_to_iso(&effective_from_local.get());
-        let until = datetime_local_to_iso(&effective_until_local.get());
+        let from = match mmddyyyy_12h_to_iso(
+            &from_date.get(),
+            &from_time.get(),
+            &from_meridiem.get(),
+        ) {
+            Some(s) => s,
+            None => {
+                set_status.set(Some(
+                    "Invalid \"Effective from\" — use MM/DD/YYYY and hh:mm AM/PM".into(),
+                ));
+                return;
+            }
+        };
+        let until = match mmddyyyy_12h_to_iso(
+            &until_date.get(),
+            &until_time.get(),
+            &until_meridiem.get(),
+        ) {
+            Some(s) => s,
+            None => {
+                set_status.set(Some(
+                    "Invalid \"Effective until\" — use MM/DD/YYYY and hh:mm AM/PM".into(),
+                ));
+                return;
+            }
+        };
         let group_val = group.get();
         let payload = CreatePromotionInput {
             name: name.get(),
@@ -128,12 +156,34 @@ pub fn PromotionsTab() -> impl IntoView {
                     </div>
                 </div>
 
-                <label class="sv-label" style="margin-top:10px;">"Effective from"</label>
-                <input class="sv-input" type="datetime-local"
-                    on:input=move |ev| set_from_local.set(event_target_value(&ev))/>
-                <label class="sv-label" style="margin-top:10px;">"Effective until"</label>
-                <input class="sv-input" type="datetime-local"
-                    on:input=move |ev| set_until_local.set(event_target_value(&ev))/>
+                <label class="sv-label" style="margin-top:10px;">"Effective from (MM/DD/YYYY, hh:mm AM/PM)"</label>
+                <div style="display:grid;grid-template-columns:1.3fr 1fr 0.7fr;gap:6px;">
+                    <input class="sv-input" placeholder="MM/DD/YYYY"
+                        prop:value=move || from_date.get()
+                        on:input=move |ev| set_from_date.set(event_target_value(&ev))/>
+                    <input class="sv-input" placeholder="hh:mm"
+                        prop:value=move || from_time.get()
+                        on:input=move |ev| set_from_time.set(event_target_value(&ev))/>
+                    <select class="sv-input"
+                        on:change=move |ev| set_from_meridiem.set(event_target_value(&ev))>
+                        <option value="AM">"AM"</option>
+                        <option value="PM">"PM"</option>
+                    </select>
+                </div>
+                <label class="sv-label" style="margin-top:10px;">"Effective until (MM/DD/YYYY, hh:mm AM/PM)"</label>
+                <div style="display:grid;grid-template-columns:1.3fr 1fr 0.7fr;gap:6px;">
+                    <input class="sv-input" placeholder="MM/DD/YYYY"
+                        prop:value=move || until_date.get()
+                        on:input=move |ev| set_until_date.set(event_target_value(&ev))/>
+                    <input class="sv-input" placeholder="hh:mm"
+                        prop:value=move || until_time.get()
+                        on:input=move |ev| set_until_time.set(event_target_value(&ev))/>
+                    <select class="sv-input"
+                        on:change=move |ev| set_until_meridiem.set(event_target_value(&ev))>
+                        <option value="AM">"AM"</option>
+                        <option value="PM" selected=true>"PM"</option>
+                    </select>
+                </div>
 
                 <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:8px;margin-top:10px;">
                     <div>

@@ -21,7 +21,8 @@ pub fn KnowledgePointsTab() -> impl IntoView {
             difficulty_max: f.difficulty_max,
             discrimination_min: f.discrimination_min,
             discrimination_max: f.discrimination_max,
-            tag: f.tags.first().cloned(),
+            tags: f.tags.clone(),
+            chapter: f.chapter.clone(),
         };
         kn_api::list_knowledge_points(Some(api_filter)).await
     });

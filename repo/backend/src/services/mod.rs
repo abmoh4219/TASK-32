@@ -11,3 +11,4 @@ pub mod file_service;
 pub mod backup_service;
 pub mod backup_scheduler;
 pub mod audit_service;
+pub mod abuse;

@@ -195,7 +195,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/backup/lifecycle-cleanup",
             post(backup_handlers::cleanup),
         )
-        .route("/api/backup/policy", get(backup_handlers::get_policy))
+        .route(
+            "/api/backup/policy",
+            get(backup_handlers::get_policy).put(backup_handlers::update_policy),
+        )
         // Admin user management + audit log
         .route(
             "/api/admin/users",

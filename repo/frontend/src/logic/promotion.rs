@@ -32,6 +32,49 @@ pub fn datetime_local_to_iso(value: &str) -> String {
     format!("{}:00Z", &value[..16])
 }
 
+/// Parse a MM/DD/YYYY date + hh:mm AM/PM time into an RFC 3339 string. Returns
+/// `None` if either field fails to parse, so the caller can display an inline
+/// validation error instead of submitting garbage. This is the canonical entry
+/// path used by the promotion form per requirement.
+pub fn mmddyyyy_12h_to_iso(date: &str, time: &str, meridiem: &str) -> Option<String> {
+    let date_parts: Vec<&str> = date.split('/').collect();
+    if date_parts.len() != 3 {
+        return None;
+    }
+    let month: u32 = date_parts[0].parse().ok()?;
+    let day: u32 = date_parts[1].parse().ok()?;
+    let year: i32 = date_parts[2].parse().ok()?;
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let time_parts: Vec<&str> = time.split(':').collect();
+    if time_parts.len() != 2 {
+        return None;
+    }
+    let mut hour: u32 = time_parts[0].parse().ok()?;
+    let minute: u32 = time_parts[1].parse().ok()?;
+    if !(1..=12).contains(&hour) || minute >= 60 {
+        return None;
+    }
+    match meridiem.to_ascii_uppercase().as_str() {
+        "AM" => {
+            if hour == 12 {
+                hour = 0;
+            }
+        }
+        "PM" => {
+            if hour != 12 {
+                hour += 12;
+            }
+        }
+        _ => return None,
+    }
+    Some(format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:00Z",
+        year, month, day, hour, minute
+    ))
+}
+
 /// Total currency saved across a list of line items, formatted with two decimals.
 /// Adding `+ 0.0` normalises any IEEE 754 negative zero into positive zero so
 /// the formatted output is never `"$-0.00"`.

@@ -112,3 +112,103 @@ async fn test_restore_sandbox_returns_validation_report() {
     // Hash check must succeed for a freshly-written bundle.
     assert_eq!(report["hash_ok"], true);
 }
+
+#[tokio::test]
+async fn test_backup_run_produces_independent_db_and_files_records() {
+    // Regression: a single run must now create two versioned records — one
+    // tagged `database`, one tagged `files` — instead of a single combined
+    // bundle.
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "admin", "ScholarAdmin2024!").await;
+    let cookie = format!("{}; csrf_token={}", session, csrf);
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/backup/run")
+        .header("cookie", cookie.clone())
+        .header("X-CSRF-Token", csrf.clone())
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // List history and confirm both artifact kinds exist.
+    let req = Request::builder()
+        .uri("/api/backup/history")
+        .header("cookie", cookie)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+    let rows: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+    let kinds: Vec<&str> = rows
+        .iter()
+        .filter_map(|r| r["artifact_kind"].as_str())
+        .collect();
+    assert!(
+        kinds.contains(&"database"),
+        "expected a `database` artifact in {:?}",
+        kinds
+    );
+    assert!(
+        kinds.contains(&"files"),
+        "expected a `files` artifact in {:?}",
+        kinds
+    );
+}
+
+#[tokio::test]
+async fn test_retention_policy_admin_can_update_others_cannot() {
+    let (app, _state) = setup_test_app().await;
+    let (a_sess, a_csrf) = login_as(app.clone(), "admin", "ScholarAdmin2024!").await;
+    let a_cookie = format!("{}; csrf_token={}", a_sess, a_csrf);
+    let payload = json!({
+        "daily_retention": 45,
+        "monthly_retention": 18,
+        "preserve_financial": true,
+        "preserve_ip": false
+    })
+    .to_string();
+
+    // Admin updates the policy.
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/backup/policy")
+        .header("content-type", "application/json")
+        .header("cookie", a_cookie.clone())
+        .header("X-CSRF-Token", a_csrf.clone())
+        .body(Body::from(payload.clone()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["daily_retention"], 45);
+    assert_eq!(body["monthly_retention"], 18);
+    assert_eq!(body["preserve_ip"], 0);
+
+    // Re-read to confirm the change persisted.
+    let req = Request::builder()
+        .uri("/api/backup/policy")
+        .header("cookie", a_cookie)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["daily_retention"], 45);
+
+    // Non-admin (curator) must be denied.
+    let (c_sess, c_csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/backup/policy")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", c_sess, c_csrf))
+        .header("X-CSRF-Token", c_csrf)
+        .body(Body::from(payload))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}

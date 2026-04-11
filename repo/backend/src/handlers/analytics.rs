@@ -11,7 +11,7 @@ use serde::Deserialize;
 use shared::AuditAction;
 
 use crate::error::{AppError, AppResult};
-use crate::middleware::require_role::{AuthenticatedUser, RequireFinance};
+use crate::middleware::require_role::{AuthenticatedUser, RequireExecAnalytics, RequireFinance};
 use crate::models::analytics::ScheduledReport;
 use crate::services::analytics_service::{
     AnalyticsService, ApprovalStats, ChurnRate, EventSummary, FundSummary, MemberMetrics,
@@ -25,21 +25,21 @@ fn analytics(state: &AppState) -> AnalyticsService {
 
 pub async fn members(
     State(state): State<AppState>,
-    AuthenticatedUser(_): AuthenticatedUser,
+    RequireExecAnalytics(_): RequireExecAnalytics,
 ) -> AppResult<Json<MemberMetrics>> {
     Ok(Json(analytics(&state).get_member_metrics().await?))
 }
 
 pub async fn churn(
     State(state): State<AppState>,
-    AuthenticatedUser(_): AuthenticatedUser,
+    RequireExecAnalytics(_): RequireExecAnalytics,
 ) -> AppResult<Json<ChurnRate>> {
     Ok(Json(analytics(&state).get_churn_rate().await?))
 }
 
 pub async fn events(
     State(state): State<AppState>,
-    AuthenticatedUser(_): AuthenticatedUser,
+    RequireExecAnalytics(_): RequireExecAnalytics,
 ) -> AppResult<Json<EventSummary>> {
     Ok(Json(analytics(&state).get_event_participation().await?))
 }
@@ -59,7 +59,7 @@ pub async fn fund_summary(
 
 pub async fn approval_cycles(
     State(state): State<AppState>,
-    AuthenticatedUser(_): AuthenticatedUser,
+    RequireExecAnalytics(_): RequireExecAnalytics,
 ) -> AppResult<Json<ApprovalStats>> {
     Ok(Json(analytics(&state).get_approval_cycle_stats().await?))
 }
@@ -143,7 +143,7 @@ pub struct ScheduleReportRequest {
 
 pub async fn schedule_report(
     State(state): State<AppState>,
-    AuthenticatedUser(user): AuthenticatedUser,
+    RequireExecAnalytics(user): RequireExecAnalytics,
     Json(req): Json<ScheduleReportRequest>,
 ) -> AppResult<Json<ScheduledReport>> {
     let row = analytics(&state)

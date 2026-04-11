@@ -20,13 +20,29 @@ use crate::services::auth_service::AuthService;
 use crate::AppState;
 use shared::AuditAction;
 
-/// Whether cookies should carry the `Secure` attribute. Controlled by the
-/// `COOKIE_SECURE` env var (default off so local HTTP Docker dev still works,
-/// enable in production/TLS deployments).
+/// Whether cookies should carry the `Secure` attribute. Safe-by-default:
+/// enabled unless the deployment has explicitly opted into an HTTP dev path by
+/// setting `APP_ENV=dev` (or `COOKIE_SECURE=false`). In any production-like
+/// environment `main.rs` hard-fails at startup unless TLS is either terminated
+/// upstream (`TRUSTED_TLS_PROXY=true`) or `COOKIE_SECURE` is explicitly set,
+/// so by the time this runs the choice has already been validated.
 fn cookies_secure() -> bool {
-    std::env::var("COOKIE_SECURE")
-        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
+    if let Ok(raw) = std::env::var("COOKIE_SECURE") {
+        return matches!(
+            raw.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        );
+    }
+    // If APP_ENV is explicitly dev/local/test, stay compatible with HTTP dev.
+    let dev = std::env::var("APP_ENV")
+        .map(|v| {
+            matches!(
+                v.to_ascii_lowercase().as_str(),
+                "dev" | "development" | "local" | "test"
+            )
+        })
+        .unwrap_or(false);
+    !dev
 }
 
 #[derive(Debug, Deserialize)]

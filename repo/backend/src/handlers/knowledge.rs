@@ -223,24 +223,71 @@ pub struct FilterQuery {
     pub difficulty_max: Option<i64>,
     pub discrimination_min: Option<f64>,
     pub discrimination_max: Option<f64>,
+    /// Legacy single-tag parameter — retained for backwards compatibility.
     pub tag: Option<String>,
+    /// Preferred multi-tag parameter: comma-separated list (`tags=foo,bar`).
+    /// Serde_urlencoded can't deserialize repeated `tags=` into `Vec`, so we
+    /// accept the CSV form and split it in the handler.
+    pub tags: Option<String>,
+    pub chapter: Option<String>,
 }
 
 pub async fn list_knowledge_points(
     State(state): State<AppState>,
+    user: Option<axum::extract::Extension<CurrentUser>>,
     Query(q): Query<FilterQuery>,
 ) -> AppResult<Json<Vec<KnowledgePoint>>> {
+    let actor = user
+        .as_ref()
+        .map(|u| u.0 .0.id.clone())
+        .unwrap_or_else(|| "anon".to_string());
+    // Anti-abuse: reject if the caller is currently in exponential backoff
+    // from repeated invalid searches. `check` is a fast DashMap read.
+    state.invalid_search_tracker.check(&actor)?;
     let svc = KnowledgeService::new(state.db.clone());
+    let mut tags: Vec<String> = Vec::new();
+    if let Some(t) = q.tag {
+        if !t.is_empty() {
+            tags.push(t);
+        }
+    }
+    if let Some(csv) = q.tags {
+        for piece in csv.split(',') {
+            let p = piece.trim();
+            if !p.is_empty() {
+                tags.push(p.to_string());
+            }
+        }
+    }
+    // De-duplicate while preserving order so repeat params don't blow up the
+    // generated LIKE clause.
+    let mut seen = std::collections::HashSet::new();
+    tags.retain(|t| seen.insert(t.clone()));
     let filter = FilterParams {
         category_id: q.category_id,
-        tags: q.tag.into_iter().collect(),
+        tags,
         difficulty_min: q.difficulty_min,
         difficulty_max: q.difficulty_max,
         discrimination_min: q.discrimination_min,
         discrimination_max: q.discrimination_max,
-        chapter: None,
+        chapter: q.chapter,
     };
-    Ok(Json(svc.filter_knowledge_points(&filter).await?))
+    let has_criteria = filter.category_id.is_some()
+        || !filter.tags.is_empty()
+        || filter.difficulty_min.is_some()
+        || filter.difficulty_max.is_some()
+        || filter.discrimination_min.is_some()
+        || filter.discrimination_max.is_some()
+        || filter.chapter.is_some();
+    let rows = svc.filter_knowledge_points(&filter).await?;
+    if has_criteria {
+        if rows.is_empty() {
+            state.invalid_search_tracker.record_invalid(&actor);
+        } else {
+            state.invalid_search_tracker.reset(&actor);
+        }
+    }
+    Ok(Json(rows))
 }
 
 #[derive(Deserialize)]

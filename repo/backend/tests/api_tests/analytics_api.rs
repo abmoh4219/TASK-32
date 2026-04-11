@@ -47,6 +47,60 @@ async fn test_fund_summary_finance_manager_allowed() {
 }
 
 #[tokio::test]
+async fn test_exec_analytics_requires_finance_or_admin() {
+    // Regression: members/churn/events/approval_cycles used to accept any
+    // authenticated role. They now require RequireExecAnalytics (admin or
+    // finance). Curator must be denied on all four and schedule_report.
+    let (app, _state) = setup_test_app().await;
+    let (c_sess, c_csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let c_cookie = format!("{}; csrf_token={}", c_sess, c_csrf);
+
+    for path in [
+        "/api/analytics/members",
+        "/api/analytics/churn",
+        "/api/analytics/events",
+        "/api/analytics/approval-cycles",
+    ] {
+        let req = Request::builder()
+            .uri(path)
+            .header("cookie", c_cookie.clone())
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "curator should be denied on {}",
+            path
+        );
+    }
+
+    // schedule_report is also exec-only now.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/analytics/reports/schedule")
+        .header("content-type", "application/json")
+        .header("cookie", c_cookie.clone())
+        .header("X-CSRF-Token", c_csrf.clone())
+        .body(Body::from(
+            json!({"report_type":"fund","format":"csv","period":null}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    // Finance manager still works on members.
+    let (f_sess, _) = login_as(app.clone(), "finance", "Scholar2024!").await;
+    let req = Request::builder()
+        .uri("/api/analytics/members")
+        .header("cookie", f_sess)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn test_fund_summary_curator_forbidden() {
     let (app, _state) = setup_test_app().await;
     let (session, _) = login_as(app.clone(), "curator", "Scholar2024!").await;

@@ -121,10 +121,63 @@ impl OutcomeService {
         row.ok_or(AppError::NotFound)
     }
 
+    /// Policy-scoped read of a single outcome. Privileged roles
+    /// (administrator, reviewer) see any record; other authenticated users may
+    /// only see outcomes they created or are listed as a contributor on. This
+    /// enforces least privilege at the data layer rather than the handler.
+    pub async fn get_outcome_scoped(
+        &self,
+        id: &str,
+        user_id: &str,
+        privileged: bool,
+    ) -> AppResult<Outcome> {
+        let outcome = self.get_outcome(id).await?;
+        if privileged || outcome.created_by == user_id {
+            return Ok(outcome);
+        }
+        let contributor: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM outcome_contributors WHERE outcome_id = ? AND user_id = ? LIMIT 1",
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(&self.db)
+        .await?;
+        if contributor.is_some() {
+            Ok(outcome)
+        } else {
+            Err(AppError::Forbidden)
+        }
+    }
+
     pub async fn list_outcomes(&self, limit: i64) -> AppResult<Vec<Outcome>> {
         let rows = sqlx::query_as::<_, Outcome>(
             "SELECT * FROM outcomes ORDER BY created_at DESC LIMIT ?",
         )
+        .bind(limit)
+        .fetch_all(&self.db)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Policy-scoped list. Privileged roles see every row; otherwise we union
+    /// outcomes the caller created with outcomes they are a contributor on.
+    pub async fn list_outcomes_scoped(
+        &self,
+        user_id: &str,
+        privileged: bool,
+        limit: i64,
+    ) -> AppResult<Vec<Outcome>> {
+        if privileged {
+            return self.list_outcomes(limit).await;
+        }
+        let rows = sqlx::query_as::<_, Outcome>(
+            "SELECT DISTINCT o.* FROM outcomes o \
+             LEFT JOIN outcome_contributors c ON c.outcome_id = o.id \
+             WHERE o.created_by = ? OR c.user_id = ? \
+             ORDER BY o.created_at DESC LIMIT ?",
+        )
+        .bind(user_id)
+        .bind(user_id)
         .bind(limit)
         .fetch_all(&self.db)
         .await?;

@@ -209,6 +209,76 @@ async fn test_evidence_upload_duplicate_fingerprint_returns_409() {
 }
 
 #[tokio::test]
+async fn test_outcomes_visibility_scoped_to_creator_or_contributor() {
+    // Regression: list/get used to expose every outcome to every authenticated
+    // user. Now only administrators and reviewers see everything; other roles
+    // see only outcomes they created or are a contributor on.
+    let (app, _state) = setup_test_app().await;
+
+    // Reviewer creates an outcome.
+    let (r_sess, r_csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+    let r_cookie = format!("{}; csrf_token={}", r_sess, r_csrf);
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/outcomes")
+        .header("content-type", "application/json")
+        .header("cookie", r_cookie.clone())
+        .header("X-CSRF-Token", r_csrf.clone())
+        .body(Body::from(
+            json!({
+                "type":"paper",
+                "title":"Private Reviewer Paper",
+                "abstract_snippet":"only visible to contributors",
+                "certificate_number": null
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let outcome_id = body["outcome"]["id"].as_str().unwrap().to_string();
+
+    // Curator is NOT a contributor and is not privileged → empty list + 403.
+    let (c_sess, _) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .uri("/api/outcomes")
+        .header("cookie", c_sess.clone())
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let rows: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+    assert!(rows.is_empty(), "curator must not see reviewer's outcome");
+
+    let req = Request::builder()
+        .uri(format!("/api/outcomes/{}", outcome_id))
+        .header("cookie", c_sess)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    // Admin is privileged and still sees the outcome.
+    let (a_sess, _) = login_as(app.clone(), "admin", "ScholarAdmin2024!").await;
+    let req = Request::builder()
+        .uri("/api/outcomes")
+        .header("cookie", a_sess)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let rows: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+    assert!(
+        rows.iter().any(|r| r["id"] == outcome_id),
+        "admin should see reviewer's outcome"
+    );
+}
+
+#[tokio::test]
 async fn test_outcomes_read_endpoints_reject_anonymous() {
     // Regression: list/get/compare used to be openly readable. Confirm they now
     // require an authenticated session.

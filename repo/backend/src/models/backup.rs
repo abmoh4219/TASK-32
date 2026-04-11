@@ -14,6 +14,8 @@ pub struct BackupRecord {
     pub created_at: String,
     pub expires_at: Option<String>,
     pub restored_at: Option<String>,
+    /// `database` or `files`. NULL for legacy rows created before the split.
+    pub artifact_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

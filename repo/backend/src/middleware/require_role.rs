@@ -72,3 +72,7 @@ role_extractor!(RequireCurator, Administrator, ContentCurator);
 role_extractor!(RequireReviewer, Administrator, Reviewer);
 role_extractor!(RequireFinance, Administrator, FinanceManager);
 role_extractor!(RequireStore, Administrator, StoreManager);
+// Executive-analytics surface (dashboard metrics + scheduled reports) is
+// restricted to administrators and finance managers — other roles have no
+// business reason to enumerate member/churn/events/approval-cycle data.
+role_extractor!(RequireExecAnalytics, Administrator, FinanceManager);

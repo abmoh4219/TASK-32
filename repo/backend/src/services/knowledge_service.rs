@@ -645,6 +645,25 @@ impl KnowledgeService {
             q.push_str(" AND tags LIKE ?");
             binds.push(format!("%\"{tag}\"%"));
         }
+        // Chapter is stored on `questions`; restrict KPs to those linked to at
+        // least one question in that chapter (either via direct
+        // `knowledge_point_id` FK or via the `knowledge_question_links` table).
+        if let Some(chapter) = &filter.chapter {
+            if !chapter.is_empty() {
+                q.push_str(
+                    " AND id IN ( \
+                        SELECT knowledge_point_id FROM questions \
+                          WHERE chapter = ? AND knowledge_point_id IS NOT NULL \
+                        UNION \
+                        SELECT l.knowledge_point_id FROM knowledge_question_links l \
+                          JOIN questions q2 ON q2.id = l.question_id \
+                          WHERE q2.chapter = ? \
+                    )",
+                );
+                binds.push(chapter.clone());
+                binds.push(chapter.clone());
+            }
+        }
         q.push_str(" ORDER BY updated_at DESC LIMIT 500");
 
         let mut query = sqlx::query_as::<_, KnowledgePoint>(&q);
@@ -652,9 +671,6 @@ impl KnowledgeService {
             query = query.bind(b);
         }
         let rows = query.fetch_all(&self.db).await?;
-        // chapter filter is applied via questions table separately when set;
-        // for the knowledge-point list it is a no-op.
-        let _ = &filter.chapter;
         Ok(rows)
     }
 }

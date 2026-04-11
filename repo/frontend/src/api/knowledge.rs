@@ -176,7 +176,10 @@ pub struct KnowledgeFilter {
     pub difficulty_max: Option<i64>,
     pub discrimination_min: Option<f64>,
     pub discrimination_max: Option<f64>,
-    pub tag: Option<String>,
+    /// Multi-tag filter. Serialized as the backend's `tags=foo,bar` CSV form.
+    pub tags: Vec<String>,
+    /// Optional chapter filter — backend joins against `questions`.
+    pub chapter: Option<String>,
 }
 
 impl KnowledgeFilter {
@@ -197,8 +200,22 @@ impl KnowledgeFilter {
         if let Some(v) = self.discrimination_max {
             parts.push(format!("discrimination_max={}", v));
         }
-        if let Some(t) = &self.tag {
-            parts.push(format!("tag={}", t));
+        if !self.tags.is_empty() {
+            let joined = self
+                .tags
+                .iter()
+                .filter(|t| !t.is_empty())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(",");
+            if !joined.is_empty() {
+                parts.push(format!("tags={}", joined));
+            }
+        }
+        if let Some(ch) = &self.chapter {
+            if !ch.is_empty() {
+                parts.push(format!("chapter={}", ch));
+            }
         }
         parts.join("&")
     }

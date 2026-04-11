@@ -10,6 +10,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Harden crates.io downloads against transient stalls: retry aggressively and
+# disable cargo's "low speed" abort that otherwise kills the build whenever
+# the connection briefly drops below ~10 B/s.
+ENV CARGO_NET_RETRY=10
+ENV CARGO_HTTP_TIMEOUT=300
+ENV CARGO_HTTP_LOW_SPEED_LIMIT=0
+ENV CARGO_HTTP_MULTIPLEXING=false
+
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo install --locked trunk --version 0.20.3
 RUN cargo install --locked wasm-bindgen-cli --version 0.2.95 || true
@@ -35,6 +43,11 @@ FROM rust:slim-bookworm AS backend-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+ENV CARGO_NET_RETRY=10
+ENV CARGO_HTTP_TIMEOUT=300
+ENV CARGO_HTTP_LOW_SPEED_LIMIT=0
+ENV CARGO_HTTP_MULTIPLEXING=false
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./

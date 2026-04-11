@@ -33,14 +33,16 @@ fn test_filter_params_serialize_to_query_string() {
         difficulty_max: Some(4),
         discrimination_min: Some(0.3),
         discrimination_max: Some(0.5),
-        tag: Some("matrix".into()),
+        tags: vec!["matrix".into(), "vectors".into()],
+        chapter: Some("ch-3".into()),
     };
     let qs = filter.to_query_string();
     assert!(qs.contains("category_id=cat-algebra"));
     assert!(qs.contains("difficulty_min=2"));
     assert!(qs.contains("difficulty_max=4"));
     assert!(qs.contains("discrimination_min=0.3"));
-    assert!(qs.contains("tag=matrix"));
+    assert!(qs.contains("tags=matrix,vectors"));
+    assert!(qs.contains("chapter=ch-3"));
 }
 
 #[test]

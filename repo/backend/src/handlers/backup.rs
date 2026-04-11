@@ -135,3 +135,46 @@ pub async fn get_policy(
 ) -> AppResult<Json<RetentionPolicy>> {
     Ok(Json(build(&state).get_active_policy().await?))
 }
+
+#[derive(serde::Deserialize)]
+pub struct UpdatePolicyRequest {
+    pub daily_retention: i64,
+    pub monthly_retention: i64,
+    pub preserve_financial: bool,
+    pub preserve_ip: bool,
+}
+
+pub async fn update_policy(
+    State(state): State<AppState>,
+    RequireAdmin(user): RequireAdmin,
+    Json(req): Json<UpdatePolicyRequest>,
+) -> AppResult<Json<RetentionPolicy>> {
+    let svc = build(&state);
+    let updated = svc
+        .update_policy(
+            req.daily_retention,
+            req.monthly_retention,
+            req.preserve_financial,
+            req.preserve_ip,
+            &user.id,
+        )
+        .await?;
+    AuditService::new(state.db.clone())
+        .log(
+            &user.id,
+            AuditAction::Update,
+            "retention_policy",
+            Some(&updated.id),
+            None,
+            Some(AuditService::compute_hash(&format!(
+                "d={} m={} pf={} pi={}",
+                updated.daily_retention,
+                updated.monthly_retention,
+                updated.preserve_financial,
+                updated.preserve_ip
+            ))),
+            None,
+        )
+        .await?;
+    Ok(Json(updated))
+}

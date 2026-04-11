@@ -132,6 +132,45 @@ async fn test_bulk_preview_returns_conflicts() {
 }
 
 #[tokio::test]
+async fn test_combined_filter_tags_csv_and_difficulty() {
+    // Regression: previously the handler only accepted a single `tag` and
+    // dropped the rest. The new CSV form must combine with difficulty_min/max.
+    let (app, _state) = setup_test_app().await;
+    // Seed KPs include kp-001 "matrix","algebra" diff=3, kp-002 "calculus" diff=4,
+    // kp-003 "mechanics" diff=2. Filter tags=matrix,algebra → must return kp-001.
+    let req = Request::builder()
+        .uri("/api/knowledge/points?tags=matrix,algebra&difficulty_min=2&difficulty_max=3")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let arr = body.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "expected only kp-001 to match multi-tag filter");
+    assert_eq!(arr[0]["id"], "kp-001");
+}
+
+#[tokio::test]
+async fn test_invalid_search_backoff_triggers_after_strikes() {
+    // Regression: 3+ zero-result searches with criteria must trip the
+    // anti-abuse backoff and produce a 429 on the next attempt.
+    let (app, _state) = setup_test_app().await;
+    let query = "/api/knowledge/points?tags=nonexistent-tag-xyz&difficulty_min=9";
+    for _ in 0..3 {
+        let req = Request::builder().uri(query).body(Body::empty()).unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = to_bytes(resp.into_body(), 16 * 1024).await.unwrap();
+        let arr: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(arr.as_array().unwrap().is_empty());
+    }
+    let req = Request::builder().uri(query).body(Body::empty()).unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
 async fn test_bulk_apply_oversize_returns_400() {
     let (app, _state) = setup_test_app().await;
     let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
