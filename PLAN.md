@@ -195,16 +195,16 @@
 > Goal: Encrypted evidence storage, backup scheduler, 30+12 retention, restore sandbox, lifecycle cleanup
 > Complete all tasks continuously, then pause. Wait for "proceed".
 
-- [ ] 7.1 Create backend/src/services/backup_service.rs: run_backup() → copy SQLite file → tar+gzip evidence dir → encrypt both bundles with AES-256-GCM → save to /app/backups/{date}/ → determine type (daily vs monthly: last day of month = monthly) → record in backup_records with sha256_hash; get_backup_history()
-- [ ] 7.2 Add: restore_to_sandbox(backup_id) → decrypt + extract to /tmp/restore-sandbox/ → run PRAGMA integrity_check → verify SHA-256 hash → run SELECT COUNT(*) FROM users as basic read test → return SandboxValidationReport{integrity_ok, hash_ok, read_test_ok, all_passed}; activate_restore(backup_id) → replaces live DB from sandbox (requires admin confirmation + all_passed=true)
-- [ ] 7.3 Add: apply_lifecycle_cleanup(retention_policy) → delete daily backups older than 30 days → delete monthly backups older than 12 months → SKIP records where entity references financial or IP data per retention_policy → delete files + mark status='purged' in backup_records
-- [ ] 7.4 Create backend/src/services/backup_scheduler.rs — tokio-cron-scheduler job reading BACKUP_SCHEDULE env var (default "0 2 * * *"), calls run_backup() on schedule
-- [ ] 7.5 Create backend/src/handlers/backup.rs — POST /api/backup/run (Admin only), GET /api/backup/history, POST /api/backup/:id/restore-sandbox, POST /api/backup/:id/activate, POST /api/backup/lifecycle-cleanup
-- [ ] 7.6 Register backup routes with Administrator role only
-- [ ] 7.7 Create frontend/src/pages/admin/backup.rs — backup history table (type/date/size/status badges), "Run Backup Now" button, restore button per row → opens sandbox validation report modal (shows integrity/hash/read test pass/fail) → "Activate Restore" button (only enabled if all_passed=true), lifecycle cleanup button with preview of what would be purged
-- [ ] 7.8 Fill in backend/tests/unit_tests/backup_tests.rs:
+- [x] 7.1 Create backend/src/services/backup_service.rs: run_backup() → copy SQLite file → tar+gzip evidence dir → encrypt both bundles with AES-256-GCM → save to /app/backups/{date}/ → determine type (daily vs monthly: last day of month = monthly) → record in backup_records with sha256_hash; get_backup_history()
+- [x] 7.2 Add: restore_to_sandbox(backup_id) → decrypt + extract to /tmp/restore-sandbox/ → run PRAGMA integrity_check → verify SHA-256 hash → run SELECT COUNT(*) FROM users as basic read test → return SandboxValidationReport{integrity_ok, hash_ok, read_test_ok, all_passed}; activate_restore(backup_id) → replaces live DB from sandbox (requires admin confirmation + all_passed=true)
+- [x] 7.3 Add: apply_lifecycle_cleanup(retention_policy) → delete daily backups older than 30 days → delete monthly backups older than 12 months → SKIP records where entity references financial or IP data per retention_policy → delete files + mark status='purged' in backup_records
+- [x] 7.4 Create backend/src/services/backup_scheduler.rs — tokio-cron-scheduler job reading BACKUP_SCHEDULE env var (default "0 2 * * *"), calls run_backup() on schedule
+- [x] 7.5 Create backend/src/handlers/backup.rs — POST /api/backup/run (Admin only), GET /api/backup/history, POST /api/backup/:id/restore-sandbox, POST /api/backup/:id/activate, POST /api/backup/lifecycle-cleanup
+- [x] 7.6 Register backup routes with Administrator role only
+- [x] 7.7 Create frontend/src/pages/admin/backup.rs — backup history table (type/date/size/status badges), "Run Backup Now" button, restore button per row → opens sandbox validation report modal (shows integrity/hash/read test pass/fail) → "Activate Restore" button (only enabled if all_passed=true), lifecycle cleanup button with preview of what would be purged
+- [x] 7.8 Fill in backend/tests/unit_tests/backup_tests.rs:
        test_daily_backup_type_mid_month(), test_monthly_backup_type_last_day_of_month(), test_lifecycle_cleanup_removes_old_daily(), test_lifecycle_cleanup_removes_old_monthly(), test_lifecycle_cleanup_preserves_financial_records(), test_lifecycle_cleanup_preserves_ip_records(), test_restore_sandbox_sha256_verification()
-- [ ] 7.9 Fill in backend/tests/api_tests/backup_api.rs:
+- [x] 7.9 Fill in backend/tests/api_tests/backup_api.rs:
        test_backup_run_creates_record(), test_backup_admin_only(), test_curator_cannot_access_backup(), test_restore_sandbox_returns_validation_report()
 
 **Phase 7 checkpoint: QA logs in as admin → navigates to Backup → Run Backup Now creates a record in the history table → Restore button opens sandbox validation modal with real pass/fail results → all backup pages functional in browser.**

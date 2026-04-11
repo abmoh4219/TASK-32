@@ -8,6 +8,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use backend::middleware::rate_limit::RateLimitState;
+use backend::services::backup_scheduler::start_backup_scheduler;
+use backend::services::backup_service::BackupService;
 use backend::{db, derive_key, router::build_router, AppError, AppResult, AppState};
 use tracing_subscriber::EnvFilter;
 
@@ -61,6 +63,26 @@ async fn main() -> AppResult<()> {
         evidence_dir: Arc::new(evidence_dir),
         backup_dir: Arc::new(backup_dir),
         reports_dir: Arc::new(reports_dir),
+    };
+
+    // Start the backup scheduler so the SPEC default 02:00 daily job is wired.
+    let backup_service = Arc::new(BackupService::new(
+        state.db.clone(),
+        match database_url.strip_prefix("sqlite://") {
+            Some(rest) => std::path::PathBuf::from(rest),
+            None => std::path::PathBuf::from(&database_url),
+        },
+        (*state.evidence_dir).clone(),
+        (*state.backup_dir).clone(),
+        *state.encryption_key,
+    ));
+    let cron_expr = std::env::var("BACKUP_SCHEDULE").unwrap_or_else(|_| "0 0 2 * * *".to_string());
+    let _scheduler_handle = match start_backup_scheduler(backup_service, &cron_expr).await {
+        Ok(s) => Some(s),
+        Err(e) => {
+            tracing::warn!(error = ?e, "backup scheduler failed to start (continuing without)");
+            None
+        }
     };
 
     let app = build_router(state);

@@ -18,6 +18,7 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::handlers::analytics as analytics_handlers;
 use crate::handlers::auth as auth_handlers;
+use crate::handlers::backup as backup_handlers;
 use crate::handlers::knowledge as knowledge_handlers;
 use crate::handlers::outcomes as outcome_handlers;
 use crate::handlers::store as store_handlers;
@@ -179,6 +180,22 @@ pub fn build_router(state: AppState) -> Router {
             "/api/analytics/reports/:id/download/:token",
             get(analytics_handlers::download_report),
         )
+        // Backup
+        .route(
+            "/api/backup/history",
+            get(backup_handlers::list_history),
+        )
+        .route("/api/backup/run", post(backup_handlers::run_backup))
+        .route(
+            "/api/backup/:id/restore-sandbox",
+            post(backup_handlers::restore_sandbox),
+        )
+        .route("/api/backup/:id/activate", post(backup_handlers::activate))
+        .route(
+            "/api/backup/lifecycle-cleanup",
+            post(backup_handlers::cleanup),
+        )
+        .route("/api/backup/policy", get(backup_handlers::get_policy))
         // Layered: CSRF on mutations, then rate limit, then session loader.
         // Order matters: outermost (last `.layer`) runs first.
         .layer(axum_middleware::from_fn(csrf_middleware))

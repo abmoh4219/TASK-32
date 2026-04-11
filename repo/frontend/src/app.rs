@@ -5,6 +5,7 @@
 use leptos::*;
 use leptos_router::{Route, Router, Routes};
 
+use crate::pages::admin::AdminPage;
 use crate::pages::analytics::AnalyticsPage;
 use crate::pages::knowledge::KnowledgePage;
 use crate::pages::login::LoginPage;
@@ -20,7 +21,7 @@ pub fn App() -> impl IntoView {
                     <Route path="/" view=move || view! { <LoginPage/> }/>
                     <Route path="/login" view=move || view! { <LoginPage/> }/>
                     <Route path="/dashboard" view=move || view! { <PlaceholderDashboard label="User".to_string()/> }/>
-                    <Route path="/admin" view=move || view! { <PlaceholderDashboard label="Administrator".to_string()/> }/>
+                    <Route path="/admin" view=AdminPage/>
                     <Route path="/knowledge" view=KnowledgePage/>
                     <Route path="/outcomes" view=OutcomesPage/>
                     <Route path="/analytics" view=AnalyticsPage/>
