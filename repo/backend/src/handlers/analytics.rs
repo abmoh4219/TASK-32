@@ -172,9 +172,16 @@ pub async fn list_reports(
 
 pub async fn download_report(
     State(state): State<AppState>,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path((id, token)): Path<(String, String)>,
 ) -> AppResult<Response> {
-    let (mime, bytes) = analytics(&state).download_report(&id, &token).await?;
+    // Ownership check happens inside the service so we enforce at the data layer
+    // and not only at the handler. Administrators may read any report.
+    let is_admin = shared::UserRole::from_str(&user.role)
+        == Some(shared::UserRole::Administrator);
+    let (mime, bytes) = analytics(&state)
+        .download_report(&id, &token, &user.id, is_admin)
+        .await?;
     let mut headers = HeaderMap::new();
     headers.insert(
         header::CONTENT_TYPE,

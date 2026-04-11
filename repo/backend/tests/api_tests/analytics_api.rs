@@ -132,9 +132,12 @@ async fn test_download_token_single_use_via_http() {
     let id = body["id"].as_str().unwrap().to_string();
     let token = body["download_token"].as_str().unwrap().to_string();
 
-    // First download — succeeds.
+    let auth_cookie = format!("{}; csrf_token={}", session, csrf);
+
+    // First download — succeeds (authenticated as report owner).
     let req = Request::builder()
         .uri(format!("/api/analytics/reports/{}/download/{}", id, token))
+        .header("cookie", auth_cookie.clone())
         .body(Body::empty())
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
@@ -143,8 +146,65 @@ async fn test_download_token_single_use_via_http() {
     // Second download with same token — single-use cleared, expect 404.
     let req = Request::builder()
         .uri(format!("/api/analytics/reports/{}/download/{}", id, token))
+        .header("cookie", auth_cookie)
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_download_report_requires_auth_and_ownership() {
+    // Regression: the download endpoint used to be reachable by anyone in
+    // possession of the token (no auth, no ownership check). We now require
+    // an authenticated session AND creator match (admin bypass aside).
+    let (app, _state) = setup_test_app().await;
+
+    // Finance user schedules a report.
+    let (f_sess, f_csrf) = login_as(app.clone(), "finance", "Scholar2024!").await;
+    let f_cookie = format!("{}; csrf_token={}", f_sess, f_csrf);
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/analytics/reports/schedule")
+        .header("content-type", "application/json")
+        .header("cookie", f_cookie.clone())
+        .header("X-CSRF-Token", f_csrf)
+        .body(Body::from(
+            json!({"report_type":"fund","format":"csv","period":null}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let id = body["id"].as_str().unwrap().to_string();
+    let token = body["download_token"].as_str().unwrap().to_string();
+
+    // Anonymous: no session cookie → 401.
+    let req = Request::builder()
+        .uri(format!("/api/analytics/reports/{}/download/{}", id, token))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // Different user (admin is privileged, so pick a non-admin): curator holds
+    // the (leaked) token but is not the creator → 403.
+    let (c_sess, _) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .uri(format!("/api/analytics/reports/{}/download/{}", id, token))
+        .header("cookie", c_sess)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    // Owner can still read it.
+    let req = Request::builder()
+        .uri(format!("/api/analytics/reports/{}/download/{}", id, token))
+        .header("cookie", f_cookie)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
 }

@@ -207,3 +207,34 @@ async fn test_evidence_upload_duplicate_fingerprint_returns_409() {
         "duplicate upload should be rejected"
     );
 }
+
+#[tokio::test]
+async fn test_outcomes_read_endpoints_reject_anonymous() {
+    // Regression: list/get/compare used to be openly readable. Confirm they now
+    // require an authenticated session.
+    let (app, _state) = setup_test_app().await;
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/api/outcomes")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/api/outcomes/anything")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/api/outcomes/a/compare/b")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}

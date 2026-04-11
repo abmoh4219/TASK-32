@@ -20,6 +20,15 @@ use crate::services::auth_service::AuthService;
 use crate::AppState;
 use shared::AuditAction;
 
+/// Whether cookies should carry the `Secure` attribute. Controlled by the
+/// `COOKIE_SECURE` env var (default off so local HTTP Docker dev still works,
+/// enable in production/TLS deployments).
+fn cookies_secure() -> bool {
+    std::env::var("COOKIE_SECURE")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
@@ -64,13 +73,16 @@ pub async fn login(
     let auth = AuthService::new(state.db.clone());
     let outcome = auth.login(&req.username, &req.password, &ip).await?;
 
+    let secure = cookies_secure();
     let session_cookie = Cookie::build(("sv_session", outcome.session_id.clone()))
         .http_only(true)
+        .secure(secure)
         .same_site(SameSite::Lax)
         .path("/")
         .build();
     let csrf_cookie = Cookie::build(("csrf_token", outcome.csrf_token.clone()))
         .http_only(false)
+        .secure(secure)
         .same_site(SameSite::Lax)
         .path("/")
         .build();
@@ -286,6 +298,7 @@ pub async fn refresh_csrf(
         .await?;
     let csrf_cookie = Cookie::build(("csrf_token", new_token.clone()))
         .http_only(false)
+        .secure(cookies_secure())
         .same_site(SameSite::Lax)
         .path("/")
         .build();

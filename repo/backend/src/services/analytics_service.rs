@@ -429,10 +429,16 @@ impl AnalyticsService {
     /// Download a completed report by id + token. The token is **single-use**:
     /// after a successful read it is cleared from the row so the same URL
     /// cannot be reused.
+    /// Download a completed report. The caller must be authenticated; ownership
+    /// is verified here at the data layer so an attacker in possession of a
+    /// token alone cannot fetch another user's report. Administrators bypass
+    /// the ownership check.
     pub async fn download_report(
         &self,
         report_id: &str,
         token: &str,
+        requesting_user_id: &str,
+        is_admin: bool,
     ) -> AppResult<(String, Vec<u8>)> {
         let row: Option<ScheduledReport> = sqlx::query_as::<_, ScheduledReport>(
             "SELECT * FROM scheduled_reports WHERE id = ?",
@@ -441,6 +447,9 @@ impl AnalyticsService {
         .fetch_optional(&self.db)
         .await?;
         let row = row.ok_or(AppError::NotFound)?;
+        if !is_admin && row.created_by != requesting_user_id {
+            return Err(AppError::Forbidden);
+        }
         if row.status != "complete" {
             return Err(AppError::Conflict("report not yet complete".into()));
         }

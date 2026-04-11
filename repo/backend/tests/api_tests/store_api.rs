@@ -133,6 +133,82 @@ async fn test_store_manager_creates_promotion() {
 }
 
 #[tokio::test]
+async fn test_get_order_requires_auth_and_blocks_cross_user_access() {
+    // Regression: /api/store/orders/:id previously had no auth and no ownership
+    // check, allowing anyone who guessed an order id to read it. This test
+    // proves (a) anonymous callers get 401, (b) another non-privileged user
+    // gets 403, and (c) the owner and the store manager both succeed.
+    let (app, _state) = setup_test_app().await;
+
+    // 1. reviewer checks out — becomes the order owner.
+    let (r_sess, r_csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+    let r_cookie = format!("{}; csrf_token={}", r_sess, r_csrf);
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/store/checkout")
+        .header("content-type", "application/json")
+        .header("cookie", r_cookie.clone())
+        .header("X-CSRF-Token", r_csrf.clone())
+        .body(Body::from(
+            json!({
+                "items": [
+                    {"product_id":"prod-book-1","product_name":"Linear Algebra Textbook","quantity":1,"unit_price":39.99}
+                ]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let order_id = body["order"]["id"].as_str().unwrap().to_string();
+
+    // 2. Anonymous request → 401.
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/store/orders/{}", order_id))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // 3. A different, non-privileged user (finance) must NOT read this order.
+    let (f_sess, f_csrf) = login_as(app.clone(), "finance", "Scholar2024!").await;
+    let f_cookie = format!("{}; csrf_token={}", f_sess, f_csrf);
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/store/orders/{}", order_id))
+        .header("cookie", f_cookie)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    // 4. The owner (reviewer) can still read their own order.
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/store/orders/{}", order_id))
+        .header("cookie", r_cookie)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // 5. Store manager has privileged read access on any order.
+    let (s_sess, s_csrf) = login_as(app.clone(), "store", "Scholar2024!").await;
+    let s_cookie = format!("{}; csrf_token={}", s_sess, s_csrf);
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/store/orders/{}", order_id))
+        .header("cookie", s_cookie)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn test_reviewer_cannot_create_promotion() {
     let (app, _state) = setup_test_app().await;
     let (session, csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;

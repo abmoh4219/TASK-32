@@ -132,9 +132,40 @@ async fn test_download_token_single_use_clears() {
         .await
         .unwrap();
     let token = row.download_token.unwrap();
-    let (_, bytes) = s.download_report(&row.id, &token).await.unwrap();
+    let (_, bytes) = s
+        .download_report(&row.id, &token, "u-finance", false)
+        .await
+        .unwrap();
     assert!(!bytes.is_empty());
     // Second attempt with the same token must fail.
-    let err = s.download_report(&row.id, &token).await.unwrap_err();
+    let err = s
+        .download_report(&row.id, &token, "u-finance", false)
+        .await
+        .unwrap_err();
     assert!(matches!(err, backend::AppError::NotFound));
+}
+
+#[tokio::test]
+async fn test_download_report_rejects_other_user() {
+    let pool = fresh_db().await;
+    let tmp = std::env::temp_dir().join(format!("sv-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let s = AnalyticsService::new(pool, tmp);
+    let row = s
+        .schedule_report("fund", "csv", None, "u-finance")
+        .await
+        .unwrap();
+    let token = row.download_token.unwrap();
+    // A different user with the same (leaked) token must not be allowed to read it.
+    let err = s
+        .download_report(&row.id, &token, "u-intruder", false)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, backend::AppError::Forbidden));
+    // Admins bypass the ownership check.
+    let (_, bytes) = s
+        .download_report(&row.id, &token, "u-admin", true)
+        .await
+        .unwrap();
+    assert!(!bytes.is_empty());
 }

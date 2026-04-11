@@ -142,10 +142,23 @@ pub async fn list_orders(
 
 pub async fn get_order(
     State(state): State<AppState>,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(id): Path<String>,
 ) -> AppResult<Json<OrderWithItems>> {
+    use crate::error::AppError;
+    use shared::UserRole;
     let svc = StoreService::new(state.db.clone());
     let (order, items) = svc.get_order_with_items(&id).await?;
+    // Object-level authorization: administrators and store managers may read any
+    // order; all other users may only read orders they placed themselves.
+    let role = UserRole::from_str(&user.role);
+    let privileged = matches!(
+        role,
+        Some(UserRole::Administrator) | Some(UserRole::StoreManager)
+    );
+    if !privileged && order.user_id != user.id {
+        return Err(AppError::Forbidden);
+    }
     Ok(Json(OrderWithItems { order, items }))
 }
 

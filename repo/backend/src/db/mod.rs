@@ -39,8 +39,17 @@ pub async fn init_pool(database_url: &str) -> AppResult<SqlitePool> {
 pub async fn run_migrations(pool: &SqlitePool, migrations_dir: &str) -> AppResult<()> {
     let path = Path::new(migrations_dir);
     if !path.exists() {
-        tracing::warn!(dir = %migrations_dir, "migrations directory does not exist; skipping");
-        return Ok(());
+        // In test contexts the caller may deliberately point at a non-existent
+        // directory (e.g. ephemeral harnesses); we only skip-warn there. For any
+        // other environment a missing migrations directory is a misconfiguration
+        // and must abort startup rather than silently run without schema.
+        if cfg!(test) || std::env::var("SCHOLARVAULT_TEST_MODE").is_ok() {
+            tracing::warn!(dir = %migrations_dir, "migrations directory missing (test mode); skipping");
+            return Ok(());
+        }
+        return Err(AppError::Internal(format!(
+            "migrations directory does not exist: {migrations_dir}"
+        )));
     }
     let migrator = sqlx::migrate::Migrator::new(path)
         .await

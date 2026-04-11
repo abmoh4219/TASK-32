@@ -23,10 +23,11 @@ async fn main() -> AppResult<()> {
 
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:///app/data/scholarvault.db".to_string());
-    let encryption_key_material = std::env::var("ENCRYPTION_KEY")
-        .unwrap_or_else(|_| "scholarvault-aes256-key-32bytes!!".to_string());
-    let signing_key = std::env::var("SIGNING_KEY")
-        .unwrap_or_else(|_| "scholarvault-jwt-signing-key-secret!".to_string());
+    // Fail fast on missing or known-insecure cryptographic secrets. We refuse to
+    // boot with the legacy shipped defaults so a misconfigured deployment cannot
+    // silently run with predictable key material. See audit issue #4.
+    let encryption_key_material = require_secret("ENCRYPTION_KEY")?;
+    let signing_key = require_secret("SIGNING_KEY")?;
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "3000".to_string())
@@ -103,6 +104,42 @@ async fn main() -> AppResult<()> {
     .map_err(|e| AppError::Internal(format!("serve failed: {e}")))?;
 
     Ok(())
+}
+
+/// Require a cryptographic secret from the environment. Returns an error if the
+/// variable is missing, shorter than 32 bytes, or matches the legacy shipped
+/// defaults — any of which indicate a dangerously weak configuration.
+///
+/// This is the explicit enforcement point referenced by the static audit: the
+/// backend refuses to start with insecure default key material, eliminating the
+/// "forgot to change the key" failure mode.
+fn require_secret(var_name: &str) -> AppResult<String> {
+    const INSECURE_DEFAULTS: &[&str] = &[
+        "scholarvault-aes256-key-32bytes!!",
+        "scholarvault-jwt-signing-key-secret!",
+        "changeme",
+        "secret",
+    ];
+    let value = std::env::var(var_name).map_err(|_| {
+        AppError::Internal(format!(
+            "{} is required — set a random value of at least 32 bytes",
+            var_name
+        ))
+    })?;
+    if value.len() < 32 {
+        return Err(AppError::Internal(format!(
+            "{} must be at least 32 bytes — got {} bytes",
+            var_name,
+            value.len()
+        )));
+    }
+    if INSECURE_DEFAULTS.iter().any(|d| *d == value) {
+        return Err(AppError::Internal(format!(
+            "{} matches a known insecure default — rotate it before starting",
+            var_name
+        )));
+    }
+    Ok(value)
 }
 
 /// Ensure the parent directory of a `sqlite://...` URL exists so SQLite can

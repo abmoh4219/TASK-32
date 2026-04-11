@@ -10,7 +10,7 @@ use serde_json::json;
 use shared::AuditAction;
 
 use crate::error::{AppError, AppResult};
-use crate::middleware::require_role::RequireReviewer;
+use crate::middleware::require_role::{AuthenticatedUser, RequireReviewer};
 use crate::models::outcome::{EvidenceFile, Outcome, OutcomeContributor};
 use crate::services::audit_service::AuditService;
 use crate::services::file_service::FileService;
@@ -20,13 +20,17 @@ use crate::services::outcome_service::{
 };
 use crate::AppState;
 
-pub async fn list_outcomes(State(state): State<AppState>) -> AppResult<Json<Vec<Outcome>>> {
+pub async fn list_outcomes(
+    State(state): State<AppState>,
+    AuthenticatedUser(_user): AuthenticatedUser,
+) -> AppResult<Json<Vec<Outcome>>> {
     let svc = OutcomeService::new(state.db.clone());
     Ok(Json(svc.list_outcomes(200).await?))
 }
 
 pub async fn get_outcome(
     State(state): State<AppState>,
+    AuthenticatedUser(_user): AuthenticatedUser,
     Path(id): Path<String>,
 ) -> AppResult<Json<OutcomeWithEvidence>> {
     let svc = OutcomeService::new(state.db.clone());
@@ -244,6 +248,7 @@ pub async fn upload_evidence(
 
 pub async fn compare_outcomes(
     State(state): State<AppState>,
+    AuthenticatedUser(_user): AuthenticatedUser,
     Path((id_a, id_b)): Path<(String, String)>,
 ) -> AppResult<Json<CompareResult>> {
     let svc = OutcomeService::new(state.db.clone());
