@@ -13,7 +13,7 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 thiserror = "1"
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "serde", "js"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 base64 = "0.21"

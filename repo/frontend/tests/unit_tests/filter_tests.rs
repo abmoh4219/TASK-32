@@ -60,3 +60,17 @@ fn test_add_tag_dedupes() {
     f.add_tag("repeat");
     assert_eq!(f.tags.len(), 1);
 }
+
+#[test]
+fn test_combined_difficulty_and_discrimination_filter() {
+    let mut f = KnowledgeFilterState::new();
+    f.set_difficulty_range(Some(2), Some(4));
+    f.apply_discrimination_band(DiscriminationBandPreset::Good);
+    f.add_tag("matrix");
+    assert_eq!(f.difficulty_min, Some(2));
+    assert_eq!(f.difficulty_max, Some(4));
+    assert_eq!(f.discrimination_min, Some(0.3));
+    assert_eq!(f.discrimination_max, Some(0.5));
+    assert_eq!(f.tags, vec!["matrix".to_string()]);
+    assert!(!f.is_empty());
+}

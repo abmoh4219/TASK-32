@@ -36,7 +36,9 @@ impl RateLimitState {
     /// Create a new keyed rate limiter at `per_minute` requests / 60 seconds.
     /// Defaults to 60 if the supplied value is zero.
     pub fn new(per_minute: u32) -> Self {
-        let n = NonZeroU32::new(per_minute).unwrap_or_else(|| NonZeroU32::new(60).unwrap());
+        // SAFETY: 60 is a non-zero literal, so the inner constructor never returns None.
+        let fallback = NonZeroU32::new(60).unwrap_or(NonZeroU32::MIN);
+        let n = NonZeroU32::new(per_minute).unwrap_or(fallback);
         let quota = Quota::per_minute(n);
         Self {
             limiter: Arc::new(RateLimiter::keyed(quota)),

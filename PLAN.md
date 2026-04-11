@@ -251,21 +251,21 @@
 > Goal: All 4 test suites pass via Docker, no unwrap() in prod code, static audit clean
 > Complete all tasks continuously, then pause. Wait for "proceed".
 
-- [ ] 9.1 Audit: grep -r "unwrap()" backend/src/ frontend/src/ | grep -v "#\[cfg(test\|tests/" → must be zero results. Fix all with ? operator.
-- [ ] 9.2 Audit: grep -r "println!\|dbg!" backend/src/ frontend/src/ | grep -v "tests/" → must be zero. Replace with tracing::info!/warn!/error!
-- [ ] 9.3 Audit: grep -r "UPDATE audit_logs\|DELETE audit_logs" backend/src/ → must be zero (append-only enforced)
-- [ ] 9.4 Audit: verify every POST/PUT/PATCH/DELETE handler file calls audit_service.log() — check each handler file manually
-- [ ] 9.5 Audit: verify AuditService impl block has ONLY log() and compute_hash() — no update/delete methods
-- [ ] 9.6 Write final missing tests to complete all 4 test suites:
+- [x] 9.1 Audit: grep -r "unwrap()" backend/src/ frontend/src/ | grep -v "#\[cfg(test\|tests/" → must be zero results. Fix all with ? operator.
+- [x] 9.2 Audit: grep -r "println!\|dbg!" backend/src/ frontend/src/ | grep -v "tests/" → must be zero. Replace with tracing::info!/warn!/error!
+- [x] 9.3 Audit: grep -r "UPDATE audit_logs\|DELETE audit_logs" backend/src/ → must be zero (append-only enforced)
+- [x] 9.4 Audit: verify every POST/PUT/PATCH/DELETE handler file calls audit_service.log() — check each handler file manually
+- [x] 9.5 Audit: verify AuditService impl block has ONLY log() and compute_hash() — no update/delete methods
+- [x] 9.6 Write final missing tests to complete all 4 test suites:
        backend/tests/unit_tests/file_tests.rs: test_pdf_magic_bytes_accepted(), test_jpeg_magic_bytes_accepted(), test_png_magic_bytes_accepted(), test_exe_magic_bytes_rejected(), test_file_with_pdf_extension_but_exe_magic_rejected(), test_sha256_fingerprint_consistent()
        backend/tests/api_tests/analytics_api.rs: test_export_rate_limit_enforced()
        frontend/tests/unit_tests/filter_tests.rs: test_combined_difficulty_and_discrimination_filter()
-- [ ] 9.7 Run: docker compose --profile test run --build test → shows 4 test suites, fix ALL failures until output shows "ALL TESTS PASSED" + exit code 0
-- [ ] 9.8 Run: docker compose up --build → verify:
+- [x] 9.7 Run: docker compose --profile test run --build test → shows 4 test suites, fix ALL failures until output shows "ALL TESTS PASSED" + exit code 0
+- [x] 9.8 Run: docker compose up --build → verify:
        app at http://localhost:3000 — login page renders with golden theme
        all 5 role logins redirect to correct dashboards
        no browser console errors
-- [ ] 9.9 Final static audit readiness check:
+- [x] 9.9 Final static audit readiness check:
        - Every security impl has doc comments with security intent (not one-liners)
        - Every service module has a //! module doc comment explaining its purpose
        - No TODO or unimplemented!() in non-test code: grep -r "TODO\|unimplemented!" backend/src/ frontend/src/ | grep -v "tests/" → zero
