@@ -10,13 +10,14 @@
 
 use axum::{
     middleware as axum_middleware,
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde_json::json;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::handlers::auth as auth_handlers;
+use crate::handlers::knowledge as knowledge_handlers;
 use crate::middleware::csrf::csrf_middleware;
 use crate::middleware::rate_limit::rate_limit_middleware;
 use crate::middleware::security_headers::security_headers_middleware;
@@ -33,6 +34,62 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/auth/refresh-csrf", post(auth_handlers::refresh_csrf))
         // Health
         .route("/api/healthz", get(healthz))
+        // Knowledge — categories
+        .route(
+            "/api/knowledge/categories",
+            get(knowledge_handlers::list_categories).post(knowledge_handlers::create_category),
+        )
+        .route(
+            "/api/knowledge/categories/tree",
+            get(knowledge_handlers::get_tree),
+        )
+        .route(
+            "/api/knowledge/categories/:id",
+            put(knowledge_handlers::update_category)
+                .delete(knowledge_handlers::delete_category),
+        )
+        .route(
+            "/api/knowledge/categories/:id/references",
+            get(knowledge_handlers::category_reference_count),
+        )
+        .route(
+            "/api/knowledge/categories/merge",
+            post(knowledge_handlers::merge_categories),
+        )
+        // Knowledge points
+        .route(
+            "/api/knowledge/points",
+            get(knowledge_handlers::list_knowledge_points)
+                .post(knowledge_handlers::create_knowledge_point),
+        )
+        .route(
+            "/api/knowledge/points/:id",
+            put(knowledge_handlers::update_knowledge_point)
+                .delete(knowledge_handlers::delete_knowledge_point),
+        )
+        .route(
+            "/api/knowledge/points/bulk/preview",
+            post(knowledge_handlers::bulk_preview),
+        )
+        .route(
+            "/api/knowledge/points/bulk/apply",
+            post(knowledge_handlers::bulk_apply),
+        )
+        // Questions
+        .route(
+            "/api/knowledge/questions",
+            get(knowledge_handlers::list_questions)
+                .post(knowledge_handlers::create_question),
+        )
+        .route(
+            "/api/knowledge/questions/:id",
+            put(knowledge_handlers::update_question)
+                .delete(knowledge_handlers::delete_question),
+        )
+        .route(
+            "/api/knowledge/questions/:id/link",
+            post(knowledge_handlers::link_question),
+        )
         // Layered: CSRF on mutations, then rate limit, then session loader.
         // Order matters: outermost (last `.layer`) runs first.
         .layer(axum_middleware::from_fn(csrf_middleware))

@@ -109,19 +109,19 @@
 > Goal: Category DAG with cycle detection, knowledge points, question bank, bulk edit 1000, combined filters
 > Complete all tasks continuously, then pause. Wait for "proceed".
 
-- [ ] 3.1 Create backend/src/services/knowledge_service.rs: create_category(), update_category(), delete_category(), get_tree() (recursive), check_would_create_cycle() DFS exactly as CLAUDE.md, get_reference_count(node_id) → {direct_kp_count, child_category_count, indirect_question_count, total}, merge_nodes(source_id, target_id) → validates no cycle + no orphans → moves all relations → audit log
-- [ ] 3.2 Add to knowledge_service: create_knowledge_point(), update_knowledge_point(), bulk_update(ids: Vec<String>, changes: BulkUpdate) — validates len ≤ 1000 (error if > 1000), preview_bulk_conflicts(ids, changes) → returns Vec<ConflictPreview> before applying, apply_bulk_update(); filter_knowledge_points(FilterParams{category_id, tags, difficulty_min, difficulty_max, discrimination_min, discrimination_max, chapter})
-- [ ] 3.3 Create backend/src/services/question_service.rs: create_question(), update_question(), delete_question(), link_to_kp(question_id, kp_id), unlink_from_kp(), filter_questions(FilterParams)
-- [ ] 3.4 Create backend/src/handlers/knowledge.rs — thin handlers delegating to services, all mutations call audit_service.log() with before/after hash
-- [ ] 3.5 Register knowledge routes in router.rs: CRUD guarded by ContentCurator + Administrator roles
-- [ ] 3.6 Create frontend/src/pages/knowledge/category_tree.rs — collapsible DAG tree, golden node icons, reference count badges on each node, "Merge" button opens modal showing cycle check result + {kp_count, subcategory_count, question_count} before confirming
-- [ ] 3.7 Create frontend/src/pages/knowledge/knowledge_points.rs — data table with filter sidebar (chapter select, tags multi-select chips, difficulty slider 1-5, discrimination band presets), bulk select with "max 1,000 records" indicator, bulk edit modal with conflict preview (shows fields that differ before applying)
-- [ ] 3.8 Create frontend/src/pages/knowledge/question_bank.rs — question list, filters, link/unlink modal
-- [ ] 3.9 Fill in backend/tests/unit_tests/knowledge_tests.rs:
+- [x] 3.1 Create backend/src/services/knowledge_service.rs: create_category(), update_category(), delete_category(), get_tree() (recursive), check_would_create_cycle() DFS exactly as CLAUDE.md, get_reference_count(node_id) → {direct_kp_count, child_category_count, indirect_question_count, total}, merge_nodes(source_id, target_id) → validates no cycle + no orphans → moves all relations → audit log
+- [x] 3.2 Add to knowledge_service: create_knowledge_point(), update_knowledge_point(), bulk_update(ids: Vec<String>, changes: BulkUpdate) — validates len ≤ 1000 (error if > 1000), preview_bulk_conflicts(ids, changes) → returns Vec<ConflictPreview> before applying, apply_bulk_update(); filter_knowledge_points(FilterParams{category_id, tags, difficulty_min, difficulty_max, discrimination_min, discrimination_max, chapter})
+- [x] 3.3 Create backend/src/services/question_service.rs: create_question(), update_question(), delete_question(), link_to_kp(question_id, kp_id), unlink_from_kp(), filter_questions(FilterParams)
+- [x] 3.4 Create backend/src/handlers/knowledge.rs — thin handlers delegating to services, all mutations call audit_service.log() with before/after hash
+- [x] 3.5 Register knowledge routes in router.rs: CRUD guarded by ContentCurator + Administrator roles
+- [x] 3.6 Create frontend/src/pages/knowledge/category_tree.rs — collapsible DAG tree, golden node icons, reference count badges on each node, "Merge" button opens modal showing cycle check result + {kp_count, subcategory_count, question_count} before confirming
+- [x] 3.7 Create frontend/src/pages/knowledge/knowledge_points.rs — data table with filter sidebar (chapter select, tags multi-select chips, difficulty slider 1-5, discrimination band presets), bulk select with "max 1,000 records" indicator, bulk edit modal with conflict preview (shows fields that differ before applying)
+- [x] 3.8 Create frontend/src/pages/knowledge/question_bank.rs — question list, filters, link/unlink modal
+- [x] 3.9 Fill in backend/tests/unit_tests/knowledge_tests.rs:
        test_cycle_detection_direct_cycle(), test_cycle_detection_indirect_cycle(), test_cycle_detection_no_cycle(), test_bulk_update_exactly_1000_succeeds(), test_bulk_update_1001_returns_error(), test_merge_blocks_when_orphan_created(), test_reference_count_includes_all_types()
-- [ ] 3.10 Fill in backend/tests/api_tests/knowledge_api.rs:
+- [x] 3.10 Fill in backend/tests/api_tests/knowledge_api.rs:
        test_create_category_success(), test_create_category_curator_role_allowed(), test_create_category_reviewer_role_forbidden(), test_merge_cycle_returns_409(), test_bulk_edit_preview_returns_conflicts()
-- [ ] 3.11 Fill in frontend/tests/unit_tests/filter_tests.rs:
+- [x] 3.11 Fill in frontend/tests/unit_tests/filter_tests.rs:
        test_filter_state_combines_difficulty_and_tags(), test_filter_state_clears_correctly(), test_discrimination_band_preset_sets_correct_range()
 
 **Phase 3 checkpoint: QA logs in as curator → navigates to Knowledge section → category tree renders real data → create/merge operations work → knowledge points table loads and filters work → all pages functional in browser.**

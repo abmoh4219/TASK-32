@@ -7,11 +7,11 @@
 
 use gloo_net::http::{Method, Request};
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use shared::ErrorResponse;
 use std::fmt;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ApiError {
     pub status: u16,
     pub code: String,
