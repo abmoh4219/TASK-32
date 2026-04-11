@@ -29,6 +29,7 @@ pub struct AppState {
     pub rate_limit: RateLimitState,
     pub evidence_dir: Arc<std::path::PathBuf>,
     pub backup_dir: Arc<std::path::PathBuf>,
+    pub reports_dir: Arc<std::path::PathBuf>,
 }
 
 /// Derive a 32-byte AES-256 key from an arbitrary-length string by truncating or

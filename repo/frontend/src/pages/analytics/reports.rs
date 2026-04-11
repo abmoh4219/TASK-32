@@ -1,0 +1,102 @@
+//! Scheduled reports tab — list pending/complete reports, schedule new ones,
+//! download via the single-use token URL.
+
+use leptos::*;
+use wasm_bindgen_futures::spawn_local;
+
+use crate::api::analytics as an_api;
+
+#[component]
+pub fn ReportsTab() -> impl IntoView {
+    let reports = create_resource(|| (), |_| async move { an_api::list_reports().await });
+    let (status, set_status) = create_signal::<Option<String>>(None);
+    let (report_type, set_report_type) = create_signal("fund".to_string());
+    let (format_kind, set_format_kind) = create_signal("csv".to_string());
+
+    let schedule = move |_| {
+        let req = an_api::ScheduleReportRequest {
+            report_type: report_type.get(),
+            format: format_kind.get(),
+            period: None,
+        };
+        spawn_local(async move {
+            match an_api::schedule_report(req).await {
+                Ok(_) => {
+                    set_status.set(Some("Scheduled".into()));
+                    reports.refetch();
+                }
+                Err(e) => set_status.set(Some(format!("Error: {}", e.message))),
+            }
+        });
+    };
+
+    view! {
+        <div style="display:grid;grid-template-columns:1fr 320px;gap:24px;">
+            <div class="sv-card">
+                <h2 style="margin:0 0 16px;font-size:16px;color:#F5C518;">"My Reports"</h2>
+                <Suspense fallback=|| view! { <div class="sv-skeleton" style="height:160px;"></div> }>
+                    {move || reports.get().map(|res| match res {
+                        Ok(rows) if rows.is_empty() => view! {
+                            <div style="text-align:center;color:#A0A0B0;padding:24px;">"No reports yet."</div>
+                        }.into_view(),
+                        Ok(rows) => view! {
+                            <table class="sv-table">
+                                <thead><tr><th>"Type"</th><th>"Status"</th><th>"Created"</th><th>"Action"</th></tr></thead>
+                                <tbody>
+                                    {rows.into_iter().map(|r| {
+                                        let badge = match r.status.as_str() {
+                                            "complete" => "sv-badge sv-badge-success",
+                                            "pending" => "sv-badge sv-badge-warning",
+                                            _ => "sv-badge sv-badge-info",
+                                        };
+                                        let download_url = match (r.download_token.as_ref(), r.status == "complete") {
+                                            (Some(tok), true) => Some(format!("/api/analytics/reports/{}/download/{}", r.id, tok)),
+                                            _ => None,
+                                        };
+                                        view! {
+                                            <tr>
+                                                <td>{r.report_type.clone()}</td>
+                                                <td><span class=badge>{r.status.clone()}</span></td>
+                                                <td style="color:#A0A0B0;font-size:11px;">{r.created_at.clone()}</td>
+                                                <td>
+                                                    {download_url.map(|u| view! {
+                                                        <a class="sv-btn-secondary" href=u target="_blank" style="font-size:11px;padding:6px 12px;">"Download"</a>
+                                                    })}
+                                                </td>
+                                            </tr>
+                                        }
+                                    }).collect_view()}
+                                </tbody>
+                            </table>
+                        }.into_view(),
+                        Err(e) => view! { <div class="sv-error">{e.message}</div> }.into_view(),
+                    })}
+                </Suspense>
+            </div>
+
+            <div class="sv-card">
+                <h3 style="margin:0 0 12px;font-size:14px;color:#F5C518;">"Schedule a Report"</h3>
+                <label class="sv-label">"Type"</label>
+                <select class="sv-input" on:change=move |ev| set_report_type.set(event_target_value(&ev))>
+                    <option value="fund">"Fund summary"</option>
+                    <option value="members">"Members snapshot"</option>
+                    <option value="events">"Event participation"</option>
+                </select>
+                <label class="sv-label" style="margin-top:10px;">"Format"</label>
+                <select class="sv-input" on:change=move |ev| set_format_kind.set(event_target_value(&ev))>
+                    <option value="csv">"CSV"</option>
+                    <option value="pdf">"PDF"</option>
+                </select>
+                <button class="sv-btn-primary" style="margin-top:14px;width:100%;" on:click=schedule>
+                    "Generate Report"
+                </button>
+                {move || status.get().map(|s| view! {
+                    <div style="margin-top:10px;font-size:11px;color:#A0A0B0;">{s}</div>
+                })}
+                <p style="margin-top:14px;font-size:10px;color:#A0A0B0;">
+                    "Download token is single-use — click Download immediately, the URL stops working after first use."
+                </p>
+            </div>
+        </div>
+    }
+}

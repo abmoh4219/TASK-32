@@ -175,16 +175,16 @@
 > Goal: All 4 dashboard metrics with real data, CSV/PDF export, scheduled reports with download tokens
 > Complete all tasks continuously, then pause. Wait for "proceed".
 
-- [ ] 6.1 Create backend/src/services/analytics_service.rs: get_member_metrics(from, to), get_churn_rate(from, to) → (churned / prior_total) as percentage, get_event_participation(filters), get_fund_summary(period) → {total_income, total_expense, net, budget_cap: 2500.00, over_budget: bool}, get_approval_cycle_stats(from, to) → {avg_minutes, median_minutes, slowest: Vec<...>}
-- [ ] 6.2 Add: generate_csv(report_type, filters) → Vec<u8>; generate_pdf(report_type, filters) → Vec<u8> using printpdf crate; schedule_report(type, filters, user_id) → creates pending record + tokio::spawn background generation → sets status=complete + download_token UUID when done; get_report_download(report_id, token) → validates single-use token → streams file → clears token
-- [ ] 6.3 Create backend/src/handlers/analytics.rs — GET /api/analytics/members, /events, /funds, /approval-cycles, POST /api/analytics/export/csv (FinanceManager+Admin), POST /api/analytics/export/pdf, POST /api/analytics/reports/schedule, GET /api/analytics/reports/:id/download/:token
-- [ ] 6.4 Register: FinanceManager + Administrator for fund/export endpoints; all authenticated for general metrics
-- [ ] 6.5 Create frontend/src/components/charts/ — Leptos components rendering chart data via JavaScript interop (canvas element + chart initialization via web_sys eval or JS shim): line_chart.rs (member growth over time), bar_chart.rs (income/expense stacked + budget cap line), histogram.rs (approval cycle time distribution)
-- [ ] 6.6 Create frontend/src/pages/analytics/dashboard.rs — role-aware dashboard: 4 golden metric cards at top, date-range picker + filters, charts section, "Export CSV" + "Export PDF" buttons (only visible to FinanceManager/Administrator), "Schedule Report" button
-- [ ] 6.7 Create frontend/src/pages/analytics/reports.rs — scheduled reports list with status badges (pending/processing/complete), download button when complete (calls download token endpoint), single-use token clears after download
-- [ ] 6.8 Fill in backend/tests/unit_tests/analytics_tests.rs:
+- [x] 6.1 Create backend/src/services/analytics_service.rs: get_member_metrics(from, to), get_churn_rate(from, to) → (churned / prior_total) as percentage, get_event_participation(filters), get_fund_summary(period) → {total_income, total_expense, net, budget_cap: 2500.00, over_budget: bool}, get_approval_cycle_stats(from, to) → {avg_minutes, median_minutes, slowest: Vec<...>}
+- [x] 6.2 Add: generate_csv(report_type, filters) → Vec<u8>; generate_pdf(report_type, filters) → Vec<u8> using printpdf crate; schedule_report(type, filters, user_id) → creates pending record + tokio::spawn background generation → sets status=complete + download_token UUID when done; get_report_download(report_id, token) → validates single-use token → streams file → clears token
+- [x] 6.3 Create backend/src/handlers/analytics.rs — GET /api/analytics/members, /events, /funds, /approval-cycles, POST /api/analytics/export/csv (FinanceManager+Admin), POST /api/analytics/export/pdf, POST /api/analytics/reports/schedule, GET /api/analytics/reports/:id/download/:token
+- [x] 6.4 Register: FinanceManager + Administrator for fund/export endpoints; all authenticated for general metrics
+- [x] 6.5 Create frontend/src/components/charts/ — Leptos components rendering chart data via JavaScript interop (canvas element + chart initialization via web_sys eval or JS shim): line_chart.rs (member growth over time), bar_chart.rs (income/expense stacked + budget cap line), histogram.rs (approval cycle time distribution)
+- [x] 6.6 Create frontend/src/pages/analytics/dashboard.rs — role-aware dashboard: 4 golden metric cards at top, date-range picker + filters, charts section, "Export CSV" + "Export PDF" buttons (only visible to FinanceManager/Administrator), "Schedule Report" button
+- [x] 6.7 Create frontend/src/pages/analytics/reports.rs — scheduled reports list with status badges (pending/processing/complete), download button when complete (calls download token endpoint), single-use token clears after download
+- [x] 6.8 Fill in backend/tests/unit_tests/analytics_tests.rs:
        test_churn_rate_calculation_formula(), test_fund_summary_over_budget_flag(), test_fund_summary_under_budget_no_flag(), test_csv_output_has_correct_headers(), test_approval_cycle_average_calculation()
-- [ ] 6.9 Fill in backend/tests/api_tests/analytics_api.rs:
+- [x] 6.9 Fill in backend/tests/api_tests/analytics_api.rs:
        test_fund_summary_finance_manager_allowed(), test_fund_summary_curator_forbidden(), test_export_csv_creates_download(), test_scheduled_report_creates_pending_record(), test_download_token_single_use()
 
 **Phase 6 checkpoint: QA logs in as finance → navigates to Analytics → dashboard loads real data charts → fund summary shows budget cap → CSV export downloads a real file → scheduled report saves and shows download button when ready → all analytics pages functional in browser.**

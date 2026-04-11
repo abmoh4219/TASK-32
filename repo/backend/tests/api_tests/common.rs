@@ -16,6 +16,7 @@ pub async fn setup_test_app() -> (axum::Router, AppState) {
     let tmp_root = std::env::temp_dir().join(format!("scholarvault-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(tmp_root.join("evidence")).ok();
     std::fs::create_dir_all(tmp_root.join("backups")).ok();
+    std::fs::create_dir_all(tmp_root.join("reports")).ok();
     let state = AppState {
         db: pool.clone(),
         encryption_key: Arc::new(derive_key("test-encryption-key-exactly-32bytes")),
@@ -23,6 +24,7 @@ pub async fn setup_test_app() -> (axum::Router, AppState) {
         rate_limit: RateLimitState::new(60),
         evidence_dir: Arc::new(tmp_root.join("evidence")),
         backup_dir: Arc::new(tmp_root.join("backups")),
+        reports_dir: Arc::new(tmp_root.join("reports")),
     };
     let app = build_router(state.clone());
     (app, state)

@@ -16,6 +16,7 @@ use axum::{
 use serde_json::json;
 use tower_http::services::{ServeDir, ServeFile};
 
+use crate::handlers::analytics as analytics_handlers;
 use crate::handlers::auth as auth_handlers;
 use crate::handlers::knowledge as knowledge_handlers;
 use crate::handlers::outcomes as outcome_handlers;
@@ -149,6 +150,35 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/store/orders", get(store_handlers::list_orders))
         .route("/api/store/orders/:id", get(store_handlers::get_order))
+        // Analytics
+        .route("/api/analytics/members", get(analytics_handlers::members))
+        .route("/api/analytics/churn", get(analytics_handlers::churn))
+        .route("/api/analytics/events", get(analytics_handlers::events))
+        .route("/api/analytics/funds", get(analytics_handlers::fund_summary))
+        .route(
+            "/api/analytics/approval-cycles",
+            get(analytics_handlers::approval_cycles),
+        )
+        .route(
+            "/api/analytics/export/csv",
+            post(analytics_handlers::export_csv),
+        )
+        .route(
+            "/api/analytics/export/pdf",
+            post(analytics_handlers::export_pdf),
+        )
+        .route(
+            "/api/analytics/reports/schedule",
+            post(analytics_handlers::schedule_report),
+        )
+        .route(
+            "/api/analytics/reports",
+            get(analytics_handlers::list_reports),
+        )
+        .route(
+            "/api/analytics/reports/:id/download/:token",
+            get(analytics_handlers::download_report),
+        )
         // Layered: CSRF on mutations, then rate limit, then session loader.
         // Order matters: outermost (last `.layer`) runs first.
         .layer(axum_middleware::from_fn(csrf_middleware))

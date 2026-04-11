@@ -46,8 +46,12 @@ async fn main() -> AppResult<()> {
     let backup_dir = std::path::PathBuf::from(
         std::env::var("BACKUP_DIR").unwrap_or_else(|_| "/app/backups".to_string()),
     );
+    let reports_dir = std::path::PathBuf::from(
+        std::env::var("REPORTS_DIR").unwrap_or_else(|_| "/app/reports".to_string()),
+    );
     let _ = std::fs::create_dir_all(&evidence_dir);
     let _ = std::fs::create_dir_all(&backup_dir);
+    let _ = std::fs::create_dir_all(&reports_dir);
 
     let state = AppState {
         db: pool,
@@ -56,6 +60,7 @@ async fn main() -> AppResult<()> {
         rate_limit: RateLimitState::new(60),
         evidence_dir: Arc::new(evidence_dir),
         backup_dir: Arc::new(backup_dir),
+        reports_dir: Arc::new(reports_dir),
     };
 
     let app = build_router(state);
