@@ -154,17 +154,17 @@
 > Goal: Promotions with time windows, mutual exclusion, best-offer engine, traceable line items
 > Complete all tasks continuously, then pause. Wait for "proceed".
 
-- [ ] 5.1 Create backend/src/services/store_service.rs: create_promotion(), update_promotion(), deactivate_promotion(); apply_best_promotion(cart_items, user_id) exactly as CLAUDE.md (time window filter → mutual exclusion resolution keeping highest priority per group → select greatest discount → return CheckoutResult with per-line LineItemResult{item, discount_amount, promotion_applied: Option<String>})
-- [ ] 5.2 Add: create_order(user_id, cart_items) → calls apply_best_promotion → saves order + order_items with promotion_trace JSON → audit log; get_orders(), get_order(id)
-- [ ] 5.3 Create backend/src/handlers/store.rs — product CRUD, promotion CRUD, POST /api/store/checkout, GET /api/store/orders
-- [ ] 5.4 Register: StoreManager + Administrator for promotion/product management; authenticated for checkout
-- [ ] 5.5 Create frontend/src/pages/store/promotions.rs — promotion table, create/edit form with datetime display in MM/DD/YYYY 12-hour format (stored as ISO 8601 internally, converted at UI layer), mutual exclusion group text input, priority number input, effective window preview badge
-- [ ] 5.6 Create frontend/src/pages/store/checkout.rs — cart, "Apply Best Offer" button, discount breakdown per line item with promotion name + discount amount, order total summary
-- [ ] 5.7 Fill in backend/tests/unit_tests/store_tests.rs:
+- [x] 5.1 Create backend/src/services/store_service.rs: create_promotion(), update_promotion(), deactivate_promotion(); apply_best_promotion(cart_items, user_id) exactly as CLAUDE.md (time window filter → mutual exclusion resolution keeping highest priority per group → select greatest discount → return CheckoutResult with per-line LineItemResult{item, discount_amount, promotion_applied: Option<String>})
+- [x] 5.2 Add: create_order(user_id, cart_items) → calls apply_best_promotion → saves order + order_items with promotion_trace JSON → audit log; get_orders(), get_order(id)
+- [x] 5.3 Create backend/src/handlers/store.rs — product CRUD, promotion CRUD, POST /api/store/checkout, GET /api/store/orders
+- [x] 5.4 Register: StoreManager + Administrator for promotion/product management; authenticated for checkout
+- [x] 5.5 Create frontend/src/pages/store/promotions.rs — promotion table, create/edit form with datetime display in MM/DD/YYYY 12-hour format (stored as ISO 8601 internally, converted at UI layer), mutual exclusion group text input, priority number input, effective window preview badge
+- [x] 5.6 Create frontend/src/pages/store/checkout.rs — cart, "Apply Best Offer" button, discount breakdown per line item with promotion name + discount amount, order total summary
+- [x] 5.7 Fill in backend/tests/unit_tests/store_tests.rs:
        test_best_offer_selects_highest_priority(), test_mutual_exclusion_one_per_group(), test_two_exclusion_groups_each_gets_best(), test_expired_promotion_not_applied(), test_future_promotion_not_applied(), test_promotion_at_boundary_applied(), test_line_item_trace_contains_promotion_name()
-- [ ] 5.8 Fill in backend/tests/api_tests/store_api.rs:
+- [x] 5.8 Fill in backend/tests/api_tests/store_api.rs:
        test_full_checkout_flow(), test_checkout_no_eligible_promotions(), test_store_manager_creates_promotion(), test_reviewer_cannot_create_promotion()
-- [ ] 5.9 Fill in frontend/tests/unit_tests/promotion_tests.rs:
+- [x] 5.9 Fill in frontend/tests/unit_tests/promotion_tests.rs:
        test_discount_display_percent_type(), test_discount_display_fixed_type(), test_promotion_time_format_mm_dd_yyyy(), test_total_savings_calculation()
 
 **Phase 5 checkpoint: QA logs in as store manager → navigates to Store → creates a promotion → checkout applies best offer → discount shown per line item with promotion name → time window respected → all store pages functional in browser.**

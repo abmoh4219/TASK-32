@@ -19,6 +19,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use crate::handlers::auth as auth_handlers;
 use crate::handlers::knowledge as knowledge_handlers;
 use crate::handlers::outcomes as outcome_handlers;
+use crate::handlers::store as store_handlers;
 use crate::middleware::csrf::csrf_middleware;
 use crate::middleware::rate_limit::rate_limit_middleware;
 use crate::middleware::security_headers::security_headers_middleware;
@@ -125,6 +126,29 @@ pub fn build_router(state: AppState) -> Router {
             "/api/outcomes/:id/compare/:other_id",
             get(outcome_handlers::compare_outcomes),
         )
+        // Store
+        .route(
+            "/api/store/products",
+            get(store_handlers::list_products).post(store_handlers::create_product),
+        )
+        .route(
+            "/api/store/promotions",
+            get(store_handlers::list_promotions).post(store_handlers::create_promotion),
+        )
+        .route(
+            "/api/store/promotions/:id/deactivate",
+            post(store_handlers::deactivate_promotion),
+        )
+        .route(
+            "/api/store/checkout",
+            post(store_handlers::checkout),
+        )
+        .route(
+            "/api/store/checkout/preview",
+            post(store_handlers::preview_checkout),
+        )
+        .route("/api/store/orders", get(store_handlers::list_orders))
+        .route("/api/store/orders/:id", get(store_handlers::get_order))
         // Layered: CSRF on mutations, then rate limit, then session loader.
         // Order matters: outermost (last `.layer`) runs first.
         .layer(axum_middleware::from_fn(csrf_middleware))
