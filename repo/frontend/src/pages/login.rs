@@ -46,19 +46,15 @@ pub fn LoginPage() -> impl IntoView {
     };
 
     view! {
-        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at top, #1A1A28 0%, #0A0A0F 70%);padding:20px;">
-            <div class="sv-card" style="width:100%;max-width:420px;padding:40px;border-left:none;border:1px solid rgba(245,197,24,0.20);box-shadow:0 0 60px rgba(245,197,24,0.20);">
-                <div style="text-align:center;margin-bottom:32px;">
-                    <h1 class="sv-text-gradient" style="font-size:32px;font-weight:800;margin:0;letter-spacing:-0.5px;">
-                        "ScholarVault"
-                    </h1>
-                    <p style="color:#A0A0B0;margin:8px 0 0;font-size:13px;">
-                        "Research & Commerce Operations Portal"
-                    </p>
+        <div class="sv-login-bg">
+            <div class="sv-login-card">
+                <div class="sv-login-logo">
+                    <div class="sv-login-mark">"ScholarVault"</div>
+                    <div class="sv-login-tag">"Research · Commerce · IP"</div>
                 </div>
 
                 <form on:submit=on_submit>
-                    <div style="margin-bottom:18px;">
+                    <div class="sv-field">
                         <label class="sv-label">"Username"</label>
                         <input
                             class="sv-input"
@@ -71,7 +67,7 @@ pub fn LoginPage() -> impl IntoView {
                         />
                     </div>
 
-                    <div style="margin-bottom:24px;">
+                    <div class="sv-field">
                         <label class="sv-label">"Password"</label>
                         <input
                             class="sv-input"
@@ -85,25 +81,23 @@ pub fn LoginPage() -> impl IntoView {
                     </div>
 
                     {move || error.get().map(|msg| view! {
-                        <div style="background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.40);border-radius:8px;padding:12px 14px;margin-bottom:18px;color:#fca5a5;font-size:13px;">
-                            {msg}
-                        </div>
+                        <div class="sv-error-banner">{msg}</div>
                     })}
 
                     <button
-                        class="sv-btn-primary"
+                        class="sv-btn-primary sv-btn-full"
                         type="submit"
-                        style="width:100%;padding:14px;font-size:15px;"
+                        style="padding:14px;font-size:14px;margin-top:6px;letter-spacing:0.04em;text-transform:uppercase;"
                         prop:disabled=move || loading.get()
                     >
-                        {move || if loading.get() { "Signing in…" } else { "Sign In" }}
+                        {move || if loading.get() { "Signing in…" } else { "Sign in" }}
                     </button>
                 </form>
 
-                <div style="margin-top:28px;padding-top:20px;border-top:1px solid rgba(245,197,24,0.10);font-size:11px;color:#A0A0B0;">
-                    <div style="margin-bottom:6px;font-weight:600;color:#F5C518;text-transform:uppercase;letter-spacing:0.05em;">"Sample Logins"</div>
-                    <div>"admin / ScholarAdmin2024!"</div>
-                    <div>"curator | reviewer | finance | store / Scholar2024!"</div>
+                <div style="margin-top:28px;padding-top:18px;border-top:1px solid rgba(245,197,24,0.10);text-align:center;">
+                    <div style="font-size:11px;color:var(--text-muted);letter-spacing:0.04em;">
+                        "Secured with Argon2id · AES-256-GCM · CSRF"
+                    </div>
                 </div>
             </div>
         </div>

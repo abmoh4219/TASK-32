@@ -78,9 +78,14 @@ pub fn CategoryTreeTab() -> impl IntoView {
     };
 
     view! {
-        <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:24px;">
+        <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:20px;">
             <div class="sv-card">
-                <h2 style="margin:0 0 16px;font-size:16px;color:#F5C518;">"Category Tree"</h2>
+                <div class="sv-card-header">
+                    <div>
+                        <div class="sv-card-title">"Category Tree"</div>
+                        <div class="sv-card-subtitle">"Hierarchical DAG with live reference counts"</div>
+                    </div>
+                </div>
                 <Suspense fallback=|| view! { <div class="sv-skeleton" style="height:120px;width:100%;"></div> }>
                     {move || tree.get().map(|res| match res {
                         Ok(nodes) if nodes.is_empty() => view! {
@@ -98,7 +103,7 @@ pub fn CategoryTreeTab() -> impl IntoView {
 
             <div style="display:flex;flex-direction:column;gap:16px;">
                 <div class="sv-card">
-                    <h3 style="margin:0 0 12px;font-size:14px;color:#F5C518;">"Create Category"</h3>
+                    <div class="sv-card-header"><div class="sv-card-title">"Create Category"</div></div>
                     <label class="sv-label">"Name"</label>
                     <input
                         class="sv-input"
@@ -120,7 +125,7 @@ pub fn CategoryTreeTab() -> impl IntoView {
                 </div>
 
                 <div class="sv-card">
-                    <h3 style="margin:0 0 12px;font-size:14px;color:#F5C518;">"Merge Categories"</h3>
+                    <div class="sv-card-header"><div class="sv-card-title">"Merge Categories"</div></div>
                     <label class="sv-label">"Source ID"</label>
                     <input
                         class="sv-input"

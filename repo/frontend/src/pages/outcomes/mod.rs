@@ -6,6 +6,7 @@ pub mod register;
 pub mod compare;
 
 use crate::api::outcomes as out_api;
+use crate::components::layout::{NavTarget, PageShell};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum OutcomeTab {
@@ -20,20 +21,17 @@ pub fn OutcomesPage() -> impl IntoView {
     let outcomes = create_resource(|| (), |_| async move { out_api::list_outcomes().await });
 
     view! {
-        <div style="min-height:100vh;padding:32px 40px;max-width:1280px;margin:0 auto;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
-                <div>
-                    <h1 class="sv-text-gradient" style="font-size:28px;font-weight:800;margin:0;">
-                        "Outcome / IP Registration"
-                    </h1>
-                    <p style="color:#A0A0B0;margin:6px 0 0;font-size:13px;">
-                        "Register papers, patents, competition results, and software copyrights."
-                    </p>
-                </div>
-                <a href="/" class="sv-btn-ghost">"Logout"</a>
+        <PageShell
+            active=NavTarget::Outcomes
+            title="Outcome / IP Registration"
+            subtitle="Register papers, patents, competitions, and software copyrights"
+        >
+            <div class="sv-page-header">
+                <h1 class="sv-page-title">"Outcome / IP Registration"</h1>
+                <p class="sv-page-subtitle">"Register papers, patents, competition results, and software copyrights with full provenance."</p>
             </div>
 
-            <div style="display:flex;gap:8px;border-bottom:1px solid rgba(245,197,24,0.20);margin-bottom:24px;">
+            <div class="sv-tabs">
                 {tab_button("My Outcomes", OutcomeTab::List, tab, set_tab)}
                 {tab_button("Register New", OutcomeTab::Register, tab, set_tab)}
                 {tab_button("Compare", OutcomeTab::Compare, tab, set_tab)}
@@ -79,7 +77,7 @@ pub fn OutcomesPage() -> impl IntoView {
                 OutcomeTab::Register => view! { <register::RegisterOutcome /> }.into_view(),
                 OutcomeTab::Compare => view! { <compare::CompareOutcomes /> }.into_view(),
             }}
-        </div>
+        </PageShell>
     }
 }
 
@@ -101,15 +99,8 @@ fn tab_button(
 ) -> impl IntoView {
     view! {
         <button
+            class=move || if current.get() == this_tab { "sv-tab active" } else { "sv-tab" }
             on:click=move |_| setter.set(this_tab)
-            style=move || {
-                let active = current.get() == this_tab;
-                format!(
-                    "padding:12px 20px;background:transparent;border:none;cursor:pointer;font-size:13px;font-weight:600;color:{};border-bottom:2px solid {};margin-bottom:-1px;",
-                    if active { "#F5C518" } else { "#A0A0B0" },
-                    if active { "#F5C518" } else { "transparent" }
-                )
-            }
         >
             {label}
         </button>

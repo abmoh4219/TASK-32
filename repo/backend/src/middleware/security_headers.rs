@@ -16,10 +16,15 @@ pub async fn security_headers_middleware(req: Request<Body>, next: Next) -> Resp
         "Strict-Transport-Security",
         HeaderValue::from_static("max-age=31536000; includeSubDomains"),
     );
+    // script-src needs `'unsafe-inline'` so trunk's injected module script
+    // (which imports the WASM bundle) is allowed to execute. `'wasm-unsafe-eval'`
+    // permits the WebAssembly.instantiate the WASM runtime performs, and
+    // `'self'` covers the external `/frontend-bin.js` file.
     headers.insert(
         "Content-Security-Policy",
         HeaderValue::from_static(
-            "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; \
+            "default-src 'self'; \
+             script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; \
              style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
              connect-src 'self'; font-src 'self' data:;",
         ),
