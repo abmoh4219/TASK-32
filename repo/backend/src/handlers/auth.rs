@@ -135,6 +135,142 @@ pub async fn me(
     }))
 }
 
+// ─── Admin user management ─────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct CreateUserRequest {
+    pub username: String,
+    pub password: String,
+    pub role: String,
+    pub full_name: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserSummary {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub is_active: i64,
+    pub full_name: Option<String>,
+    pub email: Option<String>,
+    pub created_at: String,
+}
+
+impl From<crate::models::user::User> for UserSummary {
+    fn from(u: crate::models::user::User) -> Self {
+        Self {
+            id: u.id,
+            username: u.username,
+            role: u.role,
+            is_active: u.is_active,
+            full_name: u.full_name,
+            email: u.email,
+            created_at: u.created_at,
+        }
+    }
+}
+
+pub async fn admin_list_users(
+    State(state): State<AppState>,
+    _admin: crate::middleware::require_role::RequireAdmin,
+) -> AppResult<Json<Vec<UserSummary>>> {
+    let svc = AuthService::new(state.db.clone());
+    let users = svc.list_users().await?;
+    Ok(Json(users.into_iter().map(UserSummary::from).collect()))
+}
+
+pub async fn admin_create_user(
+    State(state): State<AppState>,
+    crate::middleware::require_role::RequireAdmin(actor): crate::middleware::require_role::RequireAdmin,
+    Json(req): Json<CreateUserRequest>,
+) -> AppResult<Json<UserSummary>> {
+    let svc = AuthService::new(state.db.clone());
+    let user = svc
+        .create_user(
+            &req.username,
+            &req.password,
+            &req.role,
+            req.full_name.as_deref(),
+            req.email.as_deref(),
+        )
+        .await?;
+    AuditService::new(state.db.clone())
+        .log(
+            &actor.id,
+            AuditAction::Create,
+            "user",
+            Some(&user.id),
+            None,
+            Some(AuditService::compute_hash(&user.username)),
+            None,
+        )
+        .await?;
+    Ok(Json(UserSummary::from(user)))
+}
+
+#[derive(Deserialize)]
+pub struct ChangeRoleRequest {
+    pub role: String,
+}
+
+pub async fn admin_change_role(
+    State(state): State<AppState>,
+    crate::middleware::require_role::RequireAdmin(actor): crate::middleware::require_role::RequireAdmin,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<ChangeRoleRequest>,
+) -> AppResult<Json<UserSummary>> {
+    let svc = AuthService::new(state.db.clone());
+    let user = svc.change_role(&id, &req.role).await?;
+    AuditService::new(state.db.clone())
+        .log(
+            &actor.id,
+            AuditAction::RoleChange,
+            "user",
+            Some(&id),
+            None,
+            Some(AuditService::compute_hash(&req.role)),
+            None,
+        )
+        .await?;
+    Ok(Json(UserSummary::from(user)))
+}
+
+#[derive(Deserialize)]
+pub struct ActiveRequest {
+    pub active: bool,
+}
+
+pub async fn admin_set_active(
+    State(state): State<AppState>,
+    crate::middleware::require_role::RequireAdmin(actor): crate::middleware::require_role::RequireAdmin,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<ActiveRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    let svc = AuthService::new(state.db.clone());
+    svc.set_active(&id, req.active).await?;
+    AuditService::new(state.db.clone())
+        .log(
+            &actor.id,
+            AuditAction::Update,
+            "user",
+            Some(&id),
+            None,
+            Some(AuditService::compute_hash(&format!("active={}", req.active))),
+            None,
+        )
+        .await?;
+    Ok(Json(serde_json::json!({"success": true})))
+}
+
+pub async fn admin_audit_log(
+    State(state): State<AppState>,
+    _admin: crate::middleware::require_role::RequireAdmin,
+) -> AppResult<Json<Vec<crate::models::audit::AuditLog>>> {
+    let q = crate::services::audit_service::AuditQuery::new(state.db.clone());
+    Ok(Json(q.list_recent(200).await?))
+}
+
 /// POST /api/auth/refresh-csrf — rotates the CSRF token for the current session.
 pub async fn refresh_csrf(
     State(state): State<AppState>,

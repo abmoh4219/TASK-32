@@ -216,9 +216,9 @@
 > QA manually inspects browser — must look stunning.
 > Complete all tasks continuously, then pause. Wait for "proceed".
 
-- [ ] 8.1 Create frontend/src/components/layout/sidebar.rs — 240px dark sidebar, ScholarVault logo with golden gradient text, role-based nav items (gold active state + left border accent), role badge at bottom (gold bordered pill), logout button
-- [ ] 8.2 Create frontend/src/components/layout/topbar.rs — sticky top bar, page title, breadcrumbs, user avatar + role badge, notification bell with count badge
-- [ ] 8.3 Create frontend/src/components/ui/ complete set:
+- [x] 8.1 Create frontend/src/components/layout/sidebar.rs — 240px dark sidebar, ScholarVault logo with golden gradient text, role-based nav items (gold active state + left border accent), role badge at bottom (gold bordered pill), logout button
+- [x] 8.2 Create frontend/src/components/layout/topbar.rs — sticky top bar, page title, breadcrumbs, user avatar + role badge, notification bell with count badge
+- [x] 8.3 Create frontend/src/components/ui/ complete set:
        button.rs: Primary(gold gradient, black text), Secondary(gold border), Danger(red), Ghost — all with loading spinner
        card.rs: dark bg-card, gold left-border accent, hover shadow-gold, glassmorphism option
        badge.rs: role badges (gold gradient), status badges (colored glow), count badges
@@ -227,21 +227,21 @@
        form.rs: dark inputs, gold focus ring, floating labels, inline error messages
        skeleton.rs: gold shimmer animation (#F5C518 → transparent → #F5C518)
        empty_state.rs: centered icon + heading + body + action button
-- [ ] 8.4 Create frontend/src/pages/dashboard.rs — role-aware: Administrator sees system KPIs (user count, pending approvals, backup status, unread alerts); ContentCurator sees knowledge stats; Reviewer sees pending outcomes; FinanceManager sees fund summary card; StoreManager sees active promotions + recent orders
-- [ ] 8.5 Create frontend/src/pages/admin/users.rs — user management table, create user form (username, password with strength indicator, role select with role descriptions), deactivate/activate toggle, role change with confirmation modal
-- [ ] 8.6 Create frontend/src/pages/admin/audit.rs — immutable audit log table (actor/action/entity/before-hash/after-hash/timestamp), filter by actor/action/date, no edit/delete UI anywhere on this page, badge showing "IMMUTABLE" on audit log header
-- [ ] 8.7 Final pass — all Leptos components use #[component] macro correctly. All API calls use gloo_net. All reactive state uses create_signal/create_resource.
-- [ ] 8.8 Final pass — verify golden theme consistent: CSS variables from CLAUDE.md used everywhere, no hardcoded hex colors in component styles
-- [ ] 8.9 Final pass — verify every page: loading skeleton (skeleton.rs), empty state (empty_state.rs), error state with retry, role-gated buttons with disabled tooltip "X permission required"
-- [ ] 8.10 Fill in frontend/tests/api_tests/auth_client_tests.rs:
+- [x] 8.4 Create frontend/src/pages/dashboard.rs — role-aware: Administrator sees system KPIs (user count, pending approvals, backup status, unread alerts); ContentCurator sees knowledge stats; Reviewer sees pending outcomes; FinanceManager sees fund summary card; StoreManager sees active promotions + recent orders
+- [x] 8.5 Create frontend/src/pages/admin/users.rs — user management table, create user form (username, password with strength indicator, role select with role descriptions), deactivate/activate toggle, role change with confirmation modal
+- [x] 8.6 Create frontend/src/pages/admin/audit.rs — immutable audit log table (actor/action/entity/before-hash/after-hash/timestamp), filter by actor/action/date, no edit/delete UI anywhere on this page, badge showing "IMMUTABLE" on audit log header
+- [x] 8.7 Final pass — all Leptos components use #[component] macro correctly. All API calls use gloo_net. All reactive state uses create_signal/create_resource.
+- [x] 8.8 Final pass — verify golden theme consistent: CSS variables from CLAUDE.md used everywhere, no hardcoded hex colors in component styles
+- [x] 8.9 Final pass — verify every page: loading skeleton (skeleton.rs), empty state (empty_state.rs), error state with retry, role-gated buttons with disabled tooltip "X permission required"
+- [x] 8.10 Fill in frontend/tests/api_tests/auth_client_tests.rs:
         test_login_request_includes_csrf_header(), test_login_response_deserializes_correctly(), test_401_response_triggers_redirect_to_login()
-- [ ] 8.11 Fill in frontend/tests/api_tests/knowledge_client_tests.rs:
+- [x] 8.11 Fill in frontend/tests/api_tests/knowledge_client_tests.rs:
         test_knowledge_point_dto_serializes_correctly(), test_filter_params_serialize_to_query_string()
-- [ ] 8.12 Fill in frontend/tests/api_tests/outcome_client_tests.rs:
+- [x] 8.12 Fill in frontend/tests/api_tests/outcome_client_tests.rs:
         test_create_outcome_request_serializes_correctly(), test_duplicate_candidate_response_deserializes()
-- [ ] 8.13 Fill in frontend/tests/api_tests/store_client_tests.rs:
+- [x] 8.13 Fill in frontend/tests/api_tests/store_client_tests.rs:
         test_checkout_request_serializes_cart_items(), test_checkout_response_deserializes_line_items()
-- [ ] 8.14 Verify: cargo build --workspace succeeds — all Leptos components compile, all backend handlers compile
+- [x] 8.14 Verify: cargo build --workspace succeeds — all Leptos components compile, all backend handlers compile
 
 **Phase 8 checkpoint: cargo build --workspace succeeds. docker compose up --build → QA logs in with all 5 credentials in sequence → each role sees a different dashboard with real data → every page in the sidebar navigates without errors → golden theme visually consistent → no blank pages, no 500 errors, no placeholder content.**
 

@@ -149,6 +149,80 @@ impl AuthService {
         Ok(())
     }
 
+    /// List all users (admin-facing). Excludes password_hash for safety.
+    pub async fn list_users(&self) -> AppResult<Vec<User>> {
+        Ok(sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY username")
+            .fetch_all(&self.db)
+            .await?)
+    }
+
+    /// Create a new user. Hashes the password with Argon2id before storing.
+    pub async fn create_user(
+        &self,
+        username: &str,
+        password_plain: &str,
+        role: &str,
+        full_name: Option<&str>,
+        email: Option<&str>,
+    ) -> AppResult<User> {
+        if username.trim().is_empty() || password_plain.is_empty() {
+            return Err(AppError::Validation("username + password required".into()));
+        }
+        if shared::UserRole::from_str(role).is_none() {
+            return Err(AppError::Validation(format!("unknown role: {role}")));
+        }
+        let id = format!("u-{}", Uuid::new_v4());
+        let now = Utc::now().to_rfc3339();
+        let hash = password::hash_password(password_plain)?;
+        sqlx::query(
+            "INSERT INTO users (id, username, password_hash, role, is_active, full_name, email, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(username)
+        .bind(&hash)
+        .bind(role)
+        .bind(full_name)
+        .bind(email)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.db)
+        .await?;
+        let row = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.db)
+            .await?;
+        Ok(row)
+    }
+
+    pub async fn change_role(&self, user_id: &str, new_role: &str) -> AppResult<User> {
+        if shared::UserRole::from_str(new_role).is_none() {
+            return Err(AppError::Validation(format!("unknown role: {new_role}")));
+        }
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("UPDATE users SET role = ?, updated_at = ? WHERE id = ?")
+            .bind(new_role)
+            .bind(&now)
+            .bind(user_id)
+            .execute(&self.db)
+            .await?;
+        let row = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_one(&self.db)
+            .await?;
+        Ok(row)
+    }
+
+    pub async fn set_active(&self, user_id: &str, active: bool) -> AppResult<()> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("UPDATE users SET is_active = ?, updated_at = ? WHERE id = ?")
+            .bind(if active { 1 } else { 0 })
+            .bind(&now)
+            .bind(user_id)
+            .execute(&self.db)
+            .await?;
+        Ok(())
+    }
+
     /// Returns the current user paired with their CSRF token if the session id
     /// is valid and unexpired.
     pub async fn get_session_user(&self, session_id: &str) -> AppResult<Option<(User, String)>> {

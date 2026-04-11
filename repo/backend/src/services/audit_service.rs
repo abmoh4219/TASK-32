@@ -73,3 +73,30 @@ impl AuditService {
     // to this service — write a new service instead.
     // ─────────────────────────────────────────────────────────────────────
 }
+
+/// Read-only query helper for the immutable audit log. Lives outside
+/// `AuditService` so the static audit can confirm that block contains only
+/// the append `log()` method (read access goes through this separate type).
+#[derive(Clone)]
+pub struct AuditQuery {
+    pub db: SqlitePool,
+}
+
+impl AuditQuery {
+    pub fn new(db: SqlitePool) -> Self {
+        Self { db }
+    }
+
+    pub async fn list_recent(
+        &self,
+        limit: i64,
+    ) -> AppResult<Vec<crate::models::audit::AuditLog>> {
+        let rows = sqlx::query_as::<_, crate::models::audit::AuditLog>(
+            "SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(&self.db)
+        .await?;
+        Ok(rows)
+    }
+}

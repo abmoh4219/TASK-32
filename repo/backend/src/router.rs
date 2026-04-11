@@ -196,6 +196,20 @@ pub fn build_router(state: AppState) -> Router {
             post(backup_handlers::cleanup),
         )
         .route("/api/backup/policy", get(backup_handlers::get_policy))
+        // Admin user management + audit log
+        .route(
+            "/api/admin/users",
+            get(auth_handlers::admin_list_users).post(auth_handlers::admin_create_user),
+        )
+        .route(
+            "/api/admin/users/:id/role",
+            post(auth_handlers::admin_change_role),
+        )
+        .route(
+            "/api/admin/users/:id/active",
+            post(auth_handlers::admin_set_active),
+        )
+        .route("/api/admin/audit", get(auth_handlers::admin_audit_log))
         // Layered: CSRF on mutations, then rate limit, then session loader.
         // Order matters: outermost (last `.layer`) runs first.
         .layer(axum_middleware::from_fn(csrf_middleware))
