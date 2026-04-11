@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ScholarVault — Research & Commerce Operations Portal</title>
+    <link data-trunk rel="rust" data-bin="frontend-bin" data-wasm-opt="z" />
+    <link data-trunk rel="scss" href="style/main.scss" />
+    <link data-trunk rel="copy-file" href="style/main.scss" />
+    <meta name="theme-color" content="#0A0A0F" />
+    <style>
+      html, body {
+        background: #0A0A0F;
+        color: #F0F0F5;
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      #sv-loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        background: linear-gradient(135deg, #F5C518 0%, #E8A900 50%, #CC8800 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        font-weight: 700;
+      }
+    </style>
+</head>
+<body>
+    <div id="sv-loading">ScholarVault loading…</div>
+</body>
+</html>

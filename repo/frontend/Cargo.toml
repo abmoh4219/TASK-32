@@ -1,0 +1,39 @@
+[package]
+name = "frontend"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "frontend"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "frontend-bin"
+path = "src/main.rs"
+
+[dependencies]
+shared = { path = "../shared" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+leptos = { workspace = true }
+leptos_router = { workspace = true }
+leptos_meta = { workspace = true }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true }
+gloo-net = { workspace = true }
+gloo-storage = { workspace = true }
+console_error_panic_hook = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+
+[[test]]
+name = "unit_tests"
+path = "tests/unit_tests/mod.rs"
+
+[[test]]
+name = "api_tests"
+path = "tests/api_tests/mod.rs"

@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1.6
+# ScholarVault test runner — runs the 4 cargo test suites via run_tests.sh
+FROM rust:slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev ca-certificates sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+COPY Cargo.toml Cargo.lock* ./
+COPY shared ./shared
+COPY backend ./backend
+COPY frontend ./frontend
+COPY run_tests.sh ./run_tests.sh
+
+ENV SQLX_OFFLINE=true
+ENV CARGO_TERM_COLOR=always
+
+RUN chmod +x run_tests.sh
+RUN cargo fetch
+
+CMD ["sh", "run_tests.sh"]

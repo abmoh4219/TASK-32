@@ -1,0 +1,54 @@
+services:
+  setup:
+    image: alpine:3.18
+    volumes:
+      - ".:/workspace"
+    command: >
+      sh -c "[ ! -f /workspace/.env ] &&
+             cp /workspace/.env.example /workspace/.env &&
+             echo 'First run: .env created' || echo '.env exists'"
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///app/data/scholarvault.db}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-scholarvault-aes256-key-32bytes!!}
+      SIGNING_KEY: ${SIGNING_KEY:-scholarvault-jwt-signing-key-secret!}
+      RUST_LOG: ${RUST_LOG:-info}
+      HOST: 0.0.0.0
+      PORT: 3000
+    volumes:
+      - app-data:/app/data
+      - evidence-files:/app/evidence
+      - backups:/app/backups
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: sqlite:///tmp/scholarvault_test.db
+      ENCRYPTION_KEY: test-encryption-key-exactly-32bytes
+      SIGNING_KEY: test-signing-key-for-tests-only!!!!
+      RUST_LOG: error
+    command: ["sh", "run_tests.sh"]
+
+volumes:
+  app-data: {}
+  evidence-files: {}
+  backups: {}
