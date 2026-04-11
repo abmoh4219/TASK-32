@@ -279,7 +279,7 @@
 ## PHASE 10 — Documentation Generation
 > Final phase — generate docs from actual code. No pause needed.
 
-- [ ] 10.1 Create docs/design.md from actual implemented code:
+- [x] 10.1 Create docs/design.md from actual implemented code:
        - ASCII architecture (Browser WASM ↔ Axum ↔ SQLite + evidence dir + backup dir)
        - Cargo workspace: 3 crates, their responsibilities and dependencies
        - Docker: 3-stage Dockerfile flow, single docker-compose services, .env.example auto-copy
@@ -292,7 +292,7 @@
        - Backup: daily/monthly classification, AES encryption, sandbox restore validation steps, retention lifecycle
        - Test architecture: why 4 test suites (backend unit, backend api, frontend unit, frontend api), what each covers
 
-- [ ] 10.2 Create docs/api-spec.md from actual implemented code:
+- [x] 10.2 Create docs/api-spec.md from actual implemented code:
        - Every Axum route: method, path, role required, request shape (JSON fields or multipart), response shape, error codes
        - Auth endpoints: session cookie + csrf_token cookie behavior
        - File upload: multipart spec, validation rules (25MB, PDF/JPEG/PNG only, magic-number check)
