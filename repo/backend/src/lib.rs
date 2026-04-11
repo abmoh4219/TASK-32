@@ -18,12 +18,15 @@ pub use error::{AppError, AppResult};
 use std::sync::Arc;
 use sqlx::SqlitePool;
 
+use crate::middleware::rate_limit::RateLimitState;
+
 /// Shared application state passed into every Axum handler via the `State` extractor.
 #[derive(Clone)]
 pub struct AppState {
     pub db: SqlitePool,
     pub encryption_key: Arc<[u8; 32]>,
     pub signing_key: Arc<String>,
+    pub rate_limit: RateLimitState,
 }
 
 /// Derive a 32-byte AES-256 key from an arbitrary-length string by truncating or

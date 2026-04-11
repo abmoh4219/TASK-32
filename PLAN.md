@@ -81,25 +81,25 @@
 > Goal: Login works in Docker for all 5 roles, lockout enforced, CSRF active, rate limit active — all clearly coded
 > Complete all tasks continuously, then pause. Wait for "proceed".
 
-- [ ] 2.1 Create backend/src/security/password.rs — hash_password() + verify_password() using Argon2, exactly as in CLAUDE.md spec with doc comments
-- [ ] 2.2 Create backend/src/security/encryption.rs — encrypt_field() + decrypt_field() + mask_sensitive() using AES-256-GCM, exactly as in CLAUDE.md spec with doc comments
-- [ ] 2.3 Create backend/src/middleware/csrf.rs — csrf_middleware() axum middleware, exactly as in CLAUDE.md spec with doc comments
-- [ ] 2.4 Create backend/src/middleware/security_headers.rs — Tower middleware adding: Strict-Transport-Security, Content-Security-Policy, X-Frame-Options: DENY, X-Content-Type-Options: nosniff, Referrer-Policy: strict-origin
-- [ ] 2.5 Create backend/src/middleware/rate_limit.rs — RateLimitLayer using governor crate (60 req/min/user keyed by user_id), returns 429 + Retry-After header, exactly as in CLAUDE.md spec
-- [ ] 2.6 Create backend/src/services/auth_service.rs — login(), logout(), check_lockout(), record_attempt(), get_current_user() — exactly as in CLAUDE.md spec with doc comments
-- [ ] 2.7 Create backend/src/services/audit_service.rs — AuditService with ONLY log() + compute_hash() — NO update/delete methods — exactly as in CLAUDE.md with doc comment explaining append-only design
-- [ ] 2.8 Create backend/src/middleware/session.rs — extract session from cookie, load CurrentUser from DB, attach to request extensions
-- [ ] 2.9 Create backend/src/middleware/require_role.rs — axum extractor that checks CurrentUser.role against required roles, returns 403 if mismatch
-- [ ] 2.10 Create backend/src/handlers/auth.rs — POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me, POST /api/auth/refresh-csrf
-- [ ] 2.11 Create backend/src/router.rs — register all routes with middleware layers (security headers on all, csrf on state-changing, rate_limit on /api/**, require_role per route group)
-- [ ] 2.12 Create frontend/src/pages/login.rs — Leptos login page: golden-gradient dark card centered on screen, username + password inputs with gold focus ring, primary login button with loading spinner, error display (locked account message with countdown), CSRF token included in POST headers
-- [ ] 2.13 Fill in backend unit tests (backend/tests/unit_tests/auth_tests.rs):
+- [x] 2.1 Create backend/src/security/password.rs — hash_password() + verify_password() using Argon2, exactly as in CLAUDE.md spec with doc comments
+- [x] 2.2 Create backend/src/security/encryption.rs — encrypt_field() + decrypt_field() + mask_sensitive() using AES-256-GCM, exactly as in CLAUDE.md spec with doc comments
+- [x] 2.3 Create backend/src/middleware/csrf.rs — csrf_middleware() axum middleware, exactly as in CLAUDE.md spec with doc comments
+- [x] 2.4 Create backend/src/middleware/security_headers.rs — Tower middleware adding: Strict-Transport-Security, Content-Security-Policy, X-Frame-Options: DENY, X-Content-Type-Options: nosniff, Referrer-Policy: strict-origin
+- [x] 2.5 Create backend/src/middleware/rate_limit.rs — RateLimitLayer using governor crate (60 req/min/user keyed by user_id), returns 429 + Retry-After header, exactly as in CLAUDE.md spec
+- [x] 2.6 Create backend/src/services/auth_service.rs — login(), logout(), check_lockout(), record_attempt(), get_current_user() — exactly as in CLAUDE.md spec with doc comments
+- [x] 2.7 Create backend/src/services/audit_service.rs — AuditService with ONLY log() + compute_hash() — NO update/delete methods — exactly as in CLAUDE.md with doc comment explaining append-only design
+- [x] 2.8 Create backend/src/middleware/session.rs — extract session from cookie, load CurrentUser from DB, attach to request extensions
+- [x] 2.9 Create backend/src/middleware/require_role.rs — axum extractor that checks CurrentUser.role against required roles, returns 403 if mismatch
+- [x] 2.10 Create backend/src/handlers/auth.rs — POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me, POST /api/auth/refresh-csrf
+- [x] 2.11 Create backend/src/router.rs — register all routes with middleware layers (security headers on all, csrf on state-changing, rate_limit on /api/**, require_role per route group)
+- [x] 2.12 Create frontend/src/pages/login.rs — Leptos login page: golden-gradient dark card centered on screen, username + password inputs with gold focus ring, primary login button with loading spinner, error display (locked account message with countdown), CSRF token included in POST headers
+- [x] 2.13 Fill in backend unit tests (backend/tests/unit_tests/auth_tests.rs):
        test_password_hash_and_verify(), test_wrong_password_fails_verify(), test_mask_sensitive_short_value(), test_mask_sensitive_long_value(), test_encrypt_decrypt_roundtrip(), test_encrypt_different_nonce_each_time(), test_lockout_check_threshold_5()
-- [ ] 2.14 Fill in backend API tests (backend/tests/api_tests/auth_api.rs):
+- [x] 2.14 Fill in backend API tests (backend/tests/api_tests/auth_api.rs):
        test_login_valid_credentials_returns_200(), test_login_wrong_password_returns_401(), test_post_without_csrf_returns_403(), test_csrf_valid_token_passes(), test_logout_invalidates_session()
-- [ ] 2.15 Fill in frontend unit tests (frontend/tests/unit_tests/mask_tests.rs):
+- [x] 2.15 Fill in frontend unit tests (frontend/tests/unit_tests/mask_tests.rs):
        test_mask_phone_shows_last_4(), test_mask_id_shows_last_4(), test_mask_short_value_all_stars(), test_mask_exactly_4_chars_unchanged()
-- [ ] 2.16 Verify: cargo build --workspace succeeds.
+- [x] 2.16 Verify: cargo build --workspace succeeds.
 
 **Phase 2 checkpoint: docker compose up --build → all 5 credentials from README log in successfully and redirect to correct dashboards. POST without CSRF token returns 403. Rate limit returns 429 on 61st request. Login page renders with golden theme.**
 

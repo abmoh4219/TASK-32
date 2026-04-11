@@ -7,6 +7,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use backend::middleware::rate_limit::RateLimitState;
 use backend::{db, derive_key, router::build_router, AppError, AppResult, AppState};
 use tracing_subscriber::EnvFilter;
 
@@ -43,6 +44,7 @@ async fn main() -> AppResult<()> {
         db: pool,
         encryption_key: Arc::new(derive_key(&encryption_key_material)),
         signing_key: Arc::new(signing_key),
+        rate_limit: RateLimitState::new(60),
     };
 
     let app = build_router(state);
@@ -55,9 +57,12 @@ async fn main() -> AppResult<()> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| AppError::Internal(format!("bind failed: {e}")))?;
-    axum::serve(listener, app)
-        .await
-        .map_err(|e| AppError::Internal(format!("serve failed: {e}")))?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .map_err(|e| AppError::Internal(format!("serve failed: {e}")))?;
 
     Ok(())
 }

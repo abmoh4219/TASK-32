@@ -1,17 +1,26 @@
 //! Root Leptos component. Wires up the router with all top-level routes.
-//! Phase 0 ships a minimal placeholder home page; subsequent phases register
-//! their pages by adding `<Route>` entries below.
+//! Phase 2 hooks `/login` and a temporary placeholder for the role dashboards
+//! that the later phases will replace with real screens.
 
 use leptos::*;
 use leptos_router::{Route, Router, Routes};
+
+use crate::pages::login::LoginPage;
 
 #[component]
 pub fn App() -> impl IntoView {
     view! {
         <Router>
-            <main class="min-h-screen" style="background:#0A0A0F;color:#F0F0F5;">
+            <main style="min-height:100vh;background:#0A0A0F;color:#F0F0F5;">
                 <Routes>
-                    <Route path="/" view=Home/>
+                    <Route path="/" view=move || view! { <LoginPage/> }/>
+                    <Route path="/login" view=move || view! { <LoginPage/> }/>
+                    <Route path="/dashboard" view=move || view! { <PlaceholderDashboard label="User".to_string()/> }/>
+                    <Route path="/admin" view=move || view! { <PlaceholderDashboard label="Administrator".to_string()/> }/>
+                    <Route path="/knowledge" view=move || view! { <PlaceholderDashboard label="Content Curator".to_string()/> }/>
+                    <Route path="/outcomes" view=move || view! { <PlaceholderDashboard label="Reviewer".to_string()/> }/>
+                    <Route path="/analytics" view=move || view! { <PlaceholderDashboard label="Finance Manager".to_string()/> }/>
+                    <Route path="/store" view=move || view! { <PlaceholderDashboard label="Store Manager".to_string()/> }/>
                 </Routes>
             </main>
         </Router>
@@ -19,15 +28,20 @@ pub fn App() -> impl IntoView {
 }
 
 #[component]
-fn Home() -> impl IntoView {
+fn PlaceholderDashboard(#[prop(optional)] label: String) -> impl IntoView {
+    let role_text = if label.is_empty() { "Authenticated".to_string() } else { label };
     view! {
-        <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;">
-            <div style="text-align:center;">
-                <h1 style="font-size:42px;font-weight:800;margin:0;background:linear-gradient(135deg,#F5C518,#E8A900,#CC8800);-webkit-background-clip:text;background-clip:text;color:transparent;">
+        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;">
+            <div class="sv-card" style="text-align:center;padding:40px;max-width:520px;">
+                <h1 class="sv-text-gradient" style="font-size:28px;margin:0 0 12px;">
                     "ScholarVault"
                 </h1>
-                <p style="color:#A0A0B0;margin-top:8px;">"Research & Commerce Operations Portal"</p>
-                <p style="color:#A0A0B0;margin-top:24px;font-size:12px;">"Phase 0 bootstrap"</p>
+                <p style="color:#A0A0B0;margin:0 0 18px;">
+                    {format!("Logged in as {}", role_text)}
+                </p>
+                <p style="color:#A0A0B0;font-size:12px;margin:0;">
+                    "Role-specific pages are wired up by Phases 3–8."
+                </p>
             </div>
         </div>
     }

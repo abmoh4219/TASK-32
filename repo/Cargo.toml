@@ -22,7 +22,7 @@ base64 = "0.21"
 axum = { version = "0.7", features = ["multipart", "macros"] }
 axum-extra = { version = "0.9", features = ["cookie", "typed-header"] }
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "migrate", "chrono", "uuid"] }
-tower = "0.4"
+tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.5", features = ["cors", "fs", "trace", "set-header", "compression-gzip"] }
 argon2 = "0.5"
 aes-gcm = "0.10"
@@ -47,7 +47,7 @@ leptos = { version = "0.6", features = ["csr"] }
 leptos_router = { version = "0.6", features = ["csr"] }
 leptos_meta = { version = "0.6", features = ["csr"] }
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["Window", "Document", "HtmlElement", "HtmlInputElement", "FormData", "File", "FileList", "Storage"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlElement", "HtmlInputElement", "HtmlDocument", "FormData", "File", "FileList", "Storage", "Location"] }
 gloo-net = { version = "0.5", features = ["http"] }
 gloo-storage = "0.3"
 console_error_panic_hook = "0.1"
