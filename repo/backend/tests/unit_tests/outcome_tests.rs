@@ -245,3 +245,123 @@ async fn test_duplicate_detection_below_threshold() {
         .unwrap();
     assert!(res.duplicate_candidates.is_empty());
 }
+
+// ── Certificate-number similarity tests ──────────────────────────────────
+
+#[test]
+fn test_normalize_certificate_strips_noise() {
+    use backend::services::outcome_service::normalize_certificate;
+    assert_eq!(normalize_certificate("CN-2024/001.A"), "cn2024001a");
+    assert_eq!(normalize_certificate("cn2024001a"), "cn2024001a");
+    assert_eq!(normalize_certificate("  CN 2024 "), "cn2024");
+}
+
+#[tokio::test]
+async fn test_certificate_exact_match_flagged() {
+    let pool = fresh_db().await;
+    let svc = OutcomeService::new(pool);
+    let _ = svc
+        .create_outcome(
+            CreateOutcomeInput {
+                r#type: "patent".into(),
+                title: "Patent A".into(),
+                abstract_snippet: "x".into(),
+                certificate_number: Some("CN-2024/001".into()),
+            },
+            "u-reviewer",
+        )
+        .await
+        .unwrap();
+    let res = svc
+        .create_outcome(
+            CreateOutcomeInput {
+                r#type: "patent".into(),
+                title: "Completely Different Title".into(),
+                abstract_snippet: "y".into(),
+                certificate_number: Some("CN-2024/001".into()),
+            },
+            "u-reviewer",
+        )
+        .await
+        .unwrap();
+    assert!(
+        res.duplicate_candidates
+            .iter()
+            .any(|d| d.reason.contains("certificate")),
+        "exact cert match should be flagged"
+    );
+}
+
+#[tokio::test]
+async fn test_certificate_near_match_with_formatting_noise() {
+    let pool = fresh_db().await;
+    let svc = OutcomeService::new(pool);
+    let _ = svc
+        .create_outcome(
+            CreateOutcomeInput {
+                r#type: "patent".into(),
+                title: "Patent B".into(),
+                abstract_snippet: "x".into(),
+                certificate_number: Some("CN-2024/001.A".into()),
+            },
+            "u-reviewer",
+        )
+        .await
+        .unwrap();
+    let res = svc
+        .create_outcome(
+            CreateOutcomeInput {
+                r#type: "patent".into(),
+                title: "Unrelated Title".into(),
+                abstract_snippet: "z".into(),
+                certificate_number: Some("cn2024001a".into()),
+            },
+            "u-reviewer",
+        )
+        .await
+        .unwrap();
+    assert!(
+        res.duplicate_candidates
+            .iter()
+            .any(|d| d.reason.contains("certificate")),
+        "near-match cert after normalization should be flagged"
+    );
+}
+
+#[tokio::test]
+async fn test_certificate_different_not_flagged() {
+    let pool = fresh_db().await;
+    let svc = OutcomeService::new(pool);
+    let _ = svc
+        .create_outcome(
+            CreateOutcomeInput {
+                r#type: "patent".into(),
+                title: "Patent C".into(),
+                abstract_snippet: "x".into(),
+                certificate_number: Some("CN-2024/001".into()),
+            },
+            "u-reviewer",
+        )
+        .await
+        .unwrap();
+    let res = svc
+        .create_outcome(
+            CreateOutcomeInput {
+                r#type: "patent".into(),
+                title: "Unrelated".into(),
+                abstract_snippet: "z".into(),
+                certificate_number: Some("ZZ-9999/999".into()),
+            },
+            "u-reviewer",
+        )
+        .await
+        .unwrap();
+    // Title and abstract are totally different, cert is totally different →
+    // no duplicate candidate at all.
+    assert!(
+        !res.duplicate_candidates
+            .iter()
+            .any(|d| d.reason.contains("certificate")),
+        "different cert should not be flagged by certificate heuristic"
+    );
+}

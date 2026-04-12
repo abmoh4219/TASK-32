@@ -21,6 +21,9 @@ pub fn DashboardTab() -> impl IntoView {
                 report_type: "fund".into(),
                 format: "csv".into(),
                 period: None,
+                date_from: None,
+                date_to: None,
+                category: None,
             };
             match an_api::schedule_report(req).await {
                 Ok(r) => set_status.set(Some(format!("Scheduled report {}", r.id))),

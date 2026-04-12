@@ -44,9 +44,21 @@ pub async fn events(
     Ok(Json(analytics(&state).get_event_participation().await?))
 }
 
+/// Structured filter DTO for analytics endpoints. The `period` field is the
+/// original budget-period string (e.g. `"2026-Q1"`); the new fields expand
+/// the filter surface without breaking existing clients that only send
+/// `?period=...`. All new fields are `Option` with `None` = no filter.
 #[derive(Deserialize, Default)]
 pub struct PeriodQuery {
     pub period: Option<String>,
+    /// ISO date range — inclusive start.
+    pub date_from: Option<String>,
+    /// ISO date range — inclusive end.
+    pub date_to: Option<String>,
+    /// Restrict to a single fund category (e.g. "research", "travel").
+    pub category: Option<String>,
+    /// Restrict to records created by a specific role string (e.g. "finance_manager").
+    pub role: Option<String>,
 }
 
 pub async fn fund_summary(
@@ -54,7 +66,17 @@ pub async fn fund_summary(
     RequireFinance(_): RequireFinance,
     Query(q): Query<PeriodQuery>,
 ) -> AppResult<Json<FundSummary>> {
-    Ok(Json(analytics(&state).get_fund_summary(q.period.as_deref()).await?))
+    Ok(Json(
+        analytics(&state)
+            .get_fund_summary(
+                q.period.as_deref(),
+                q.date_from.as_deref(),
+                q.date_to.as_deref(),
+                q.category.as_deref(),
+                q.role.as_deref(),
+            )
+            .await?,
+    ))
 }
 
 pub async fn approval_cycles(

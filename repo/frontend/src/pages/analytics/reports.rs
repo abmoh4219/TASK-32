@@ -20,6 +20,9 @@ pub fn ReportsTab() -> impl IntoView {
             report_type: report_type.get(),
             format: format_kind.get(),
             period: if p.is_empty() { None } else { Some(p) },
+            date_from: None,
+            date_to: None,
+            category: None,
         };
         spawn_local(async move {
             match an_api::schedule_report(req).await {
@@ -109,6 +112,7 @@ pub fn ReportsTab() -> impl IntoView {
                                 report_type: report_type.get(),
                                 format: "csv".into(),
                                 period: if p.is_empty() { None } else { Some(p) },
+                                date_from: None, date_to: None, category: None,
                             };
                             spawn_local(async move {
                                 match an_api::schedule_report(req).await {
@@ -132,6 +136,7 @@ pub fn ReportsTab() -> impl IntoView {
                                 report_type: report_type.get(),
                                 format: "pdf".into(),
                                 period: if p.is_empty() { None } else { Some(p) },
+                                date_from: None, date_to: None, category: None,
                             };
                             spawn_local(async move {
                                 match an_api::schedule_report(req).await {

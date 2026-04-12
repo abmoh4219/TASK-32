@@ -131,21 +131,50 @@ impl AnalyticsService {
         })
     }
 
-    pub async fn get_fund_summary(&self, period: Option<&str>) -> AppResult<FundSummary> {
-        let transactions = if let Some(p) = period {
-            sqlx::query_as::<_, FundTransaction>(
-                "SELECT * FROM fund_transactions WHERE budget_period = ? ORDER BY created_at DESC",
-            )
-            .bind(p)
-            .fetch_all(&self.db)
-            .await?
-        } else {
-            sqlx::query_as::<_, FundTransaction>(
-                "SELECT * FROM fund_transactions ORDER BY created_at DESC LIMIT 200",
-            )
-            .fetch_all(&self.db)
-            .await?
-        };
+    /// Fund summary with optional structured filters. `period` is the legacy
+    /// budget-period string; `date_from`/`date_to`/`category`/`role` narrow
+    /// further. All are `None` by default so existing callers see no change.
+    pub async fn get_fund_summary(
+        &self,
+        period: Option<&str>,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        category: Option<&str>,
+        role: Option<&str>,
+    ) -> AppResult<FundSummary> {
+        let mut q = String::from("SELECT * FROM fund_transactions WHERE 1=1");
+        let mut binds: Vec<String> = Vec::new();
+        if let Some(p) = period {
+            q.push_str(" AND budget_period = ?");
+            binds.push(p.to_string());
+        }
+        if let Some(d) = date_from {
+            q.push_str(" AND created_at >= ?");
+            binds.push(d.to_string());
+        }
+        if let Some(d) = date_to {
+            q.push_str(" AND created_at <= ?");
+            binds.push(d.to_string());
+        }
+        if let Some(c) = category {
+            q.push_str(" AND category = ?");
+            binds.push(c.to_string());
+        }
+        if let Some(r) = role {
+            // Filter by the role of the user who recorded the transaction.
+            // The `recorded_by` column holds a user id; we join against users
+            // to match on role. Using a subquery keeps the dynamic SQL simple.
+            q.push_str(
+                " AND recorded_by IN (SELECT id FROM users WHERE role = ?)",
+            );
+            binds.push(r.to_string());
+        }
+        q.push_str(" ORDER BY created_at DESC LIMIT 200");
+        let mut query = sqlx::query_as::<_, FundTransaction>(&q);
+        for b in &binds {
+            query = query.bind(b);
+        }
+        let transactions = query.fetch_all(&self.db).await?;
         let total_income: f64 = transactions
             .iter()
             .filter(|t| t.r#type == "income")
@@ -221,7 +250,7 @@ impl AnalyticsService {
                     "created_at",
                 ])
                 .map_err(|e| AppError::Internal(e.to_string()))?;
-                let summary = self.get_fund_summary(period).await?;
+                let summary = self.get_fund_summary(period, None, None, None, None).await?;
                 for t in summary.transactions {
                     wtr.write_record([
                         t.id,
@@ -286,7 +315,7 @@ impl AnalyticsService {
         let generated_at = format!("Generated {}", Utc::now().to_rfc3339());
         let lines: Vec<String> = match report_type {
             "fund" => {
-                let summary = self.get_fund_summary(period).await?;
+                let summary = self.get_fund_summary(period, None, None, None, None).await?;
                 let mut v = vec![
                     format!("Total income:  ${:.2}", summary.total_income),
                     format!("Total expense: ${:.2}", summary.total_expense),

@@ -499,23 +499,33 @@ impl KnowledgeService {
         if ids.is_empty() {
             return Ok(0);
         }
+        // Deduplicate incoming ids so the same record is only counted once.
+        let mut seen = std::collections::HashSet::new();
+        let deduped: Vec<&String> = ids.iter().filter(|id| seen.insert(id.as_str())).collect();
         let now = Utc::now().to_rfc3339();
         let mut tx = self.db.begin().await?;
-        let mut affected: u64 = 0;
+        // Track which *unique record ids* were actually changed (not statement
+        // row-counts, which can overcount when multiple fields update the same row).
+        let mut touched_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-        for chunk in ids.chunks(200) {
+        for chunk in deduped.chunks(200) {
             let placeholders = vec!["?"; chunk.len()].join(",");
+            // Each UPDATE that touches rows means those ids were changed.
+            // We collect them into a set so the final count is accurate.
+            let chunk_ids: Vec<&str> = chunk.iter().map(|s| s.as_str()).collect();
             if let Some(category_id) = &changes.category_id {
                 let q = format!(
                     "UPDATE knowledge_points SET category_id = ?, updated_at = ? WHERE id IN ({})",
                     placeholders
                 );
                 let mut query = sqlx::query(&q).bind(category_id).bind(&now);
-                for id in chunk {
-                    query = query.bind(id);
+                for id in &chunk_ids {
+                    query = query.bind(*id);
                 }
                 let res = query.execute(&mut *tx).await?;
-                affected = affected.max(res.rows_affected());
+                if res.rows_affected() > 0 {
+                    touched_ids.extend(chunk_ids.iter().map(|s| s.to_string()));
+                }
             }
             if let Some(diff) = changes.difficulty {
                 if !(1..=5).contains(&diff) {
@@ -526,11 +536,13 @@ impl KnowledgeService {
                     placeholders
                 );
                 let mut query = sqlx::query(&q).bind(diff).bind(&now);
-                for id in chunk {
-                    query = query.bind(id);
+                for id in &chunk_ids {
+                    query = query.bind(*id);
                 }
                 let res = query.execute(&mut *tx).await?;
-                affected = affected.max(res.rows_affected());
+                if res.rows_affected() > 0 {
+                    touched_ids.extend(chunk_ids.iter().map(|s| s.to_string()));
+                }
             }
             if let Some(disc) = changes.discrimination {
                 let q = format!(
@@ -538,15 +550,17 @@ impl KnowledgeService {
                     placeholders
                 );
                 let mut query = sqlx::query(&q).bind(disc).bind(&now);
-                for id in chunk {
-                    query = query.bind(id);
+                for id in &chunk_ids {
+                    query = query.bind(*id);
                 }
                 let res = query.execute(&mut *tx).await?;
-                affected = affected.max(res.rows_affected());
+                if res.rows_affected() > 0 {
+                    touched_ids.extend(chunk_ids.iter().map(|s| s.to_string()));
+                }
             }
         }
         tx.commit().await?;
-        Ok(affected as usize)
+        Ok(touched_ids.len())
     }
 
     /// Preview which rows would change under a bulk edit. Returns one

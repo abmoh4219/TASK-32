@@ -85,6 +85,7 @@ impl AuthService {
         username: &str,
         password_plain: &str,
         ip: &str,
+        user_agent: Option<&str>,
     ) -> AppResult<LoginOutcome> {
         // 1. Lockout gate — runs before we touch the password hasher.
         self.check_lockout(username, ip).await?;
@@ -120,13 +121,14 @@ impl AuthService {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
-            "INSERT INTO sessions (id, user_id, csrf_token, ip_address, expires_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (id, user_id, csrf_token, ip_address, user_agent, expires_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&session_id)
         .bind(&user.id)
         .bind(&csrf_token)
         .bind(ip)
+        .bind(user_agent)
         .bind(&expires_at)
         .bind(&now)
         .execute(&self.db)

@@ -39,7 +39,7 @@ async fn test_fund_summary_under_budget_no_flag() {
     let pool = fresh_db().await;
     let s = svc(pool);
     // Seed expense total = 420 + 180 = 600 < 2500 cap.
-    let f = s.get_fund_summary(None).await.unwrap();
+    let f = s.get_fund_summary(None, None, None, None, None).await.unwrap();
     assert!(!f.over_budget);
     assert!((f.total_expense - 600.0).abs() < 1e-6);
     assert!((f.total_income - 2250.0).abs() < 1e-6);
@@ -59,7 +59,7 @@ async fn test_fund_summary_over_budget_flag() {
     .await
     .unwrap();
     let s = svc(pool);
-    let f = s.get_fund_summary(None).await.unwrap();
+    let f = s.get_fund_summary(None, None, None, None, None).await.unwrap();
     assert!(f.over_budget, "expense > $2500 must trigger over_budget");
 }
 

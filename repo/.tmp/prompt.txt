@@ -1,0 +1,117 @@
+please fix the remaining partially fixed issue and make them fully fixed 
+# Audit Fix Check — Prior Issues Re-Verification (Static-Only)
+
+Date: 2026-04-12
+
+Scope: Re-check of the 7 issues listed in `audit_report-1.md` using static code/document inspection only (no runtime execution, no tests run).
+
+## Summary
+
+- **Fixed:** 4
+- **Partially Fixed:** 3
+- **Not Fixed:** 0
+
+---
+
+## 1) High — End-to-end HTTPS not statically implemented at app listener layer
+
+- **Current status:** **Partially Fixed**
+- **What changed:** Transport-security gating is stronger and now validates TLS-related modes/config at startup.
+- **Evidence:**
+  - `backend/src/main.rs:33` (`enforce_transport_security()` called)
+  - `backend/src/main.rs:202` (transport mode function)
+  - `backend/src/main.rs:233` (`TRUSTED_TLS_PROXY` handling)
+  - `backend/src/main.rs:246` (hard-fail message for missing transport config)
+- **What remains:** Listener still binds plain TCP and serves with `axum::serve`.
+- **Evidence (remaining gap):**
+  - `backend/src/main.rs:117` (`TcpListener::bind`)
+  - `backend/src/main.rs:120` (`axum::serve`)
+- **Conclusion:** Improved configuration enforcement, but no statically evident in-process TLS listener path in the serve layer.
+
+---
+
+## 2) High — Duplicate detection used exact certificate match only
+
+- **Current status:** **Fixed**
+- **What changed:** Certificate matching now includes normalized similarity scoring in addition to exact match.
+- **Evidence:**
+  - `backend/src/services/outcome_service.rs:26` (`CERT_SIMILARITY_THRESHOLD`)
+  - `backend/src/services/outcome_service.rs:32` (`normalize_certificate`)
+  - `backend/src/services/outcome_service.rs:234`–`235` (normalized certificate comparison)
+  - `backend/src/services/outcome_service.rs:237` (threshold check)
+  - `backend/src/services/outcome_service.rs:243` ("certificate similarity" reason)
+  - `backend/tests/unit_tests/outcome_tests.rs:252`–`256` (normalization tests)
+
+---
+
+## 3) Medium — Analytics filter surface narrow (period-only)
+
+- **Current status:** **Partially Fixed**
+- **What changed:** Additional filter fields were added for fund summary (`date_from`, `date_to`, `category`).
+- **Evidence:**
+  - `backend/src/handlers/analytics.rs:52`–`61` (`PeriodQuery` expanded)
+  - `backend/src/services/analytics_service.rs:134` (new `get_fund_summary` signature)
+  - `backend/src/services/analytics_service.rs:151`, `:155`, `:159` (date/category SQL predicates)
+- **What remains:**
+  - `role` appears in handler DTO but is not passed to/used by service query.
+  - Filter expansion is centered on fund summary; broader custom-filter semantics across analytics surfaces remain limited.
+- **Evidence (remaining gap):**
+  - `backend/src/handlers/analytics.rs:61` (`role: Option<String>`)
+  - `backend/src/handlers/analytics.rs:71` (service call omits `role`)
+
+---
+
+## 4) Medium — Placeholder dashboard route/page remained
+
+- **Current status:** **Fixed**
+- **What changed:** `/dashboard` now routes to a real `DashboardHome` component instead of placeholder.
+- **Evidence:**
+  - `frontend/src/app.rs:22` (`/dashboard` -> `DashboardHome`)
+  - `frontend/src/app.rs:38` (`DashboardHome` implementation)
+- **Note:** `frontend/src/pages/dashboard.rs` remains an intentionally empty module stub for tree consistency.
+  - `frontend/src/pages/dashboard.rs:1`
+
+---
+
+## 5) Medium (Suspected Risk) — Session loading did not bind to IP/user-agent
+
+- **Current status:** **Partially Fixed**
+- **What changed:** Session middleware now checks request UA/IP against stored session context.
+- **Evidence:**
+  - `backend/src/middleware/session.rs:99` (session query includes `user_agent`, `ip_address`)
+  - `backend/src/middleware/session.rs:121` (UA mismatch invalidates session)
+  - `backend/src/middleware/session.rs:136` (IP mismatch handling)
+- **What remains:** IP mismatch is soft-warning (not invalidation), so replay-risk mitigation is improved but policy is intentionally tolerant.
+
+---
+
+## 6) Medium — Bulk update affected-count logic inaccurate
+
+- **Current status:** **Fixed**
+- **What changed:** Counting now tracks unique touched IDs instead of `max(rows_affected)`.
+- **Evidence:**
+  - `backend/src/services/knowledge_service.rs:507` (dedupe IDs)
+  - `backend/src/services/knowledge_service.rs:512` (touched set)
+  - `backend/src/services/knowledge_service.rs:526`, `:543`, `:557` (add touched IDs when updates affect rows)
+  - `backend/src/services/knowledge_service.rs:562` (`Ok(touched_ids.len())`)
+
+---
+
+## 7) Low — Documentation depth thin for acceptance reproducibility
+
+- **Current status:** **Fixed**
+- **What changed:** README now includes non-Docker run path, configuration matrix, transport security modes, and verification checklist.
+- **Evidence:**
+  - `README.md:18` (run without Docker)
+  - `README.md:39` (configuration matrix)
+  - `README.md:56` (transport security modes)
+  - `README.md:79` (verification checklist)
+
+---
+
+## Final Re-check Verdict
+
+- Previous findings are **substantially addressed**.
+- Remaining material gaps are concentrated in:
+  1. HTTPS serve-layer implementation evidence (still partial), and
+  2. analytics filter breadth/consistency (partial).

@@ -41,6 +41,10 @@ tar = "0.4"
 constant_time_eq = "0.3"
 http = "1"
 mime = "0.3"
+rustls-pemfile = "1"
+tokio-rustls = "0.24"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 
 # Frontend
 leptos = { version = "0.6", features = ["csr"] }

@@ -21,6 +21,20 @@ use crate::models::outcome::{Outcome, OutcomeContributor};
 pub const TITLE_SIMILARITY_THRESHOLD: f64 = 0.85;
 pub const ABSTRACT_SIMILARITY_THRESHOLD: f64 = 0.80;
 pub const ABSTRACT_COMPARE_LEN: usize = 200;
+/// Jaro-Winkler threshold for certificate-number similarity after
+/// normalization. Set conservatively high to avoid false positives.
+pub const CERT_SIMILARITY_THRESHOLD: f64 = 0.90;
+
+/// Normalize a certificate number string for similarity comparison:
+/// lowercase, strip whitespace, remove common punctuation noise (hyphens,
+/// slashes, dots). This turns `"CN-2024/001.A"` and `"cn2024001a"` into
+/// the same canonical form so near-matches are detected.
+pub fn normalize_certificate(cert: &str) -> String {
+    cert.chars()
+        .filter(|c| !c.is_whitespace() && *c != '-' && *c != '/' && *c != '.')
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
 
 #[derive(Clone)]
 pub struct OutcomeService {
@@ -202,18 +216,36 @@ impl OutcomeService {
         let mut out = Vec::new();
         let abstract_input = head(abstract_snippet, ABSTRACT_COMPARE_LEN);
         for cand in existing {
-            // Exact certificate number match
+            // Certificate number: exact match first, then normalized
+            // similarity so "CN-2024/001" and "cn2024001" are flagged.
             if let (Some(input_cert), Some(existing_cert)) =
                 (certificate_number, cand.certificate_number.as_deref())
             {
-                if !input_cert.is_empty() && input_cert == existing_cert {
-                    out.push(DuplicateCandidate {
-                        id: cand.id.clone(),
-                        title: cand.title.clone(),
-                        similarity_score: 1.0,
-                        reason: "certificate number matches".into(),
-                    });
-                    continue;
+                if !input_cert.is_empty() && !existing_cert.is_empty() {
+                    if input_cert == existing_cert {
+                        out.push(DuplicateCandidate {
+                            id: cand.id.clone(),
+                            title: cand.title.clone(),
+                            similarity_score: 1.0,
+                            reason: "certificate number exact match".into(),
+                        });
+                        continue;
+                    }
+                    let norm_input = normalize_certificate(input_cert);
+                    let norm_existing = normalize_certificate(existing_cert);
+                    let cert_score = strsim::jaro_winkler(&norm_input, &norm_existing);
+                    if cert_score >= CERT_SIMILARITY_THRESHOLD {
+                        out.push(DuplicateCandidate {
+                            id: cand.id.clone(),
+                            title: cand.title.clone(),
+                            similarity_score: cert_score,
+                            reason: format!(
+                                "certificate similarity {:.2} (normalized)",
+                                cert_score
+                            ),
+                        });
+                        continue;
+                    }
                 }
             }
             let title_score = strsim::jaro_winkler(title, &cand.title);

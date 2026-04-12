@@ -47,6 +47,10 @@ tar = { workspace = true }
 constant_time_eq = { workspace = true }
 http = { workspace = true }
 mime = { workspace = true }
+rustls-pemfile = { workspace = true }
+tokio-rustls = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 
 [[test]]
 name = "unit_tests"

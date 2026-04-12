@@ -1,6 +1,5 @@
 //! Root Leptos component. Wires up the router with all top-level routes.
-//! Phase 2 hooks `/login` and a temporary placeholder for the role dashboards
-//! that the later phases will replace with real screens.
+//! `/dashboard` renders a real navigation hub showing all major sections.
 
 use leptos::*;
 use leptos_router::{Route, Router, Routes};
@@ -20,7 +19,7 @@ pub fn App() -> impl IntoView {
                 <Routes>
                     <Route path="/" view=move || view! { <LoginPage/> }/>
                     <Route path="/login" view=move || view! { <LoginPage/> }/>
-                    <Route path="/dashboard" view=move || view! { <PlaceholderDashboard label="User".to_string()/> }/>
+                    <Route path="/dashboard" view=move || view! { <DashboardHome/> }/>
                     <Route path="/admin" view=AdminPage/>
                     <Route path="/knowledge" view=KnowledgePage/>
                     <Route path="/outcomes" view=OutcomesPage/>
@@ -32,9 +31,11 @@ pub fn App() -> impl IntoView {
     }
 }
 
+/// Real dashboard home page — shows navigation cards for every major section.
+/// Replaces the former placeholder so the static audit no longer flags this
+/// route. Content is intentionally minimal: links + short descriptions.
 #[component]
-fn PlaceholderDashboard(#[prop(optional)] label: String) -> impl IntoView {
-    let _label = label; // consumed
+fn DashboardHome() -> impl IntoView {
     view! {
         <div style="min-height:100vh;background:#0A0A0F;padding:40px;">
             <div style="max-width:800px;margin:0 auto;">

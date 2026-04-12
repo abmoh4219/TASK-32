@@ -75,6 +75,7 @@ pub async fn login(
     State(state): State<AppState>,
     cookies: CookieJar,
     addr: Option<ConnectInfo<SocketAddr>>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<(CookieJar, Json<LoginResponse>)> {
     if req.username.trim().is_empty() || req.password.is_empty() {
@@ -86,8 +87,14 @@ pub async fn login(
     let ip = addr
         .map(|c| c.0.ip().to_string())
         .unwrap_or_else(|| "0.0.0.0".to_string());
+    let ua = headers
+        .get("User-Agent")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     let auth = AuthService::new(state.db.clone());
-    let outcome = auth.login(&req.username, &req.password, &ip).await?;
+    let outcome = auth
+        .login(&req.username, &req.password, &ip, ua.as_deref())
+        .await?;
 
     let secure = cookies_secure();
     let session_cookie = Cookie::build(("sv_session", outcome.session_id.clone()))

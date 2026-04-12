@@ -107,6 +107,15 @@ pub struct ScheduleReportRequest {
     pub report_type: String,
     pub format: String,
     pub period: Option<String>,
+    /// Optional ISO date range start (e.g. "2026-01-01").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_from: Option<String>,
+    /// Optional ISO date range end.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_to: Option<String>,
+    /// Optional fund category filter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 pub async fn members() -> Result<MemberMetrics, ApiError> {

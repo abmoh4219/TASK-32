@@ -98,6 +98,37 @@ fn test_analytics_export_paths_and_shape() {
 }
 
 #[test]
+fn test_schedule_report_dto_expanded_filters() {
+    use frontend::api::analytics::ScheduleReportRequest;
+    // Old-style: only period — new optional fields should not appear in JSON
+    // when None (skip_serializing_if).
+    let old = ScheduleReportRequest {
+        report_type: "fund".into(),
+        format: "csv".into(),
+        period: Some("2026-Q1".into()),
+        date_from: None,
+        date_to: None,
+        category: None,
+    };
+    let v = serde_json::to_value(&old).unwrap();
+    assert_eq!(v["period"], "2026-Q1");
+    assert!(v.get("date_from").is_none(), "None fields should be skipped");
+
+    // New-style: all filter fields.
+    let new = ScheduleReportRequest {
+        report_type: "fund".into(),
+        format: "pdf".into(),
+        period: None,
+        date_from: Some("2026-01-01".into()),
+        date_to: Some("2026-03-31".into()),
+        category: Some("research".into()),
+    };
+    let v = serde_json::to_value(&new).unwrap();
+    assert_eq!(v["date_from"], "2026-01-01");
+    assert_eq!(v["category"], "research");
+}
+
+#[test]
 fn test_link_question_request_shape() {
     let req = LinkQuestionRequest {
         knowledge_point_id: "kp-001".into(),
