@@ -57,7 +57,7 @@ pub async fn create_category(
             AuditAction::Create,
             "category",
             Some(&cat.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(after_hash),
             None,
         )
@@ -106,7 +106,7 @@ pub async fn delete_category(
             "category",
             Some(&id),
             Some(before_hash),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_DELETED.to_string()),
             None,
         )
         .await?;
@@ -134,6 +134,7 @@ pub async fn merge_categories(
     Json(req): Json<MergeRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     let svc = KnowledgeService::new(state.db.clone());
+    let before_hash = AuditService::compute_hash(&req.source_id);
     svc.merge_nodes(&req.source_id, &req.target_id).await?;
     AuditService::new(state.db.clone())
         .log(
@@ -141,7 +142,7 @@ pub async fn merge_categories(
             AuditAction::MergeNodes,
             "category",
             Some(&req.source_id),
-            None,
+            Some(before_hash),
             Some(AuditService::compute_hash(&req.target_id)),
             None,
         )
@@ -165,7 +166,7 @@ pub async fn create_knowledge_point(
             AuditAction::Create,
             "knowledge_point",
             Some(&kp.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(after),
             None,
         )
@@ -214,7 +215,7 @@ pub async fn delete_knowledge_point(
             "knowledge_point",
             Some(&id),
             Some(before_hash),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_DELETED.to_string()),
             None,
         )
         .await?;
@@ -313,6 +314,7 @@ pub async fn bulk_apply(
     Json(req): Json<BulkUpdateRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     let svc = KnowledgeService::new(state.db.clone());
+    let before_hash = AuditService::compute_hash(&format!("ids={:?}", &req.ids));
     let count = svc.bulk_update(&req.ids, &req.changes).await?;
     AuditService::new(state.db.clone())
         .log(
@@ -320,7 +322,7 @@ pub async fn bulk_apply(
             AuditAction::BulkUpdate,
             "knowledge_point",
             None,
-            None,
+            Some(before_hash),
             Some(AuditService::compute_hash(&format!("ids={} count={}", req.ids.len(), count))),
             None,
         )
@@ -352,7 +354,7 @@ pub async fn create_question(
             AuditAction::Create,
             "question",
             Some(&q.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&serde_json::to_string(&q)?)),
             None,
         )
@@ -396,8 +398,8 @@ pub async fn delete_question(
             AuditAction::Delete,
             "question",
             Some(&id),
-            None,
-            None,
+            Some(AuditService::compute_hash(&id)),
+            Some(crate::services::audit_service::HASH_ENTITY_DELETED.to_string()),
             None,
         )
         .await?;
@@ -420,10 +422,10 @@ pub async fn link_question(
     AuditService::new(state.db.clone())
         .log(
             &user.id,
-            AuditAction::Update,
+            AuditAction::Create,
             "question_link",
             Some(&id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&req.knowledge_point_id)),
             None,
         )

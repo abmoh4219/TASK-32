@@ -1,5 +1,10 @@
 //! Side-by-side compare-two-outcomes view. Calls
 //! `/api/outcomes/:id/compare/:other_id` and highlights fields that differ.
+//!
+//! Supports two modes:
+//! 1. **Props mode**: when `initial_a` and `initial_b` are provided (e.g. from
+//!    the duplicate-gating workflow), the comparison loads automatically.
+//! 2. **Manual mode**: the user can type or change IDs and click Compare.
 
 use leptos::*;
 use wasm_bindgen_futures::spawn_local;
@@ -7,19 +12,25 @@ use wasm_bindgen_futures::spawn_local;
 use crate::api::outcomes::{self as out_api, CompareResult};
 
 #[component]
-pub fn CompareOutcomes() -> impl IntoView {
-    let (id_a, set_id_a) = create_signal(String::new());
-    let (id_b, set_id_b) = create_signal(String::new());
+pub fn CompareOutcomes(
+    /// Pre-populated outcome A id (empty string = manual entry).
+    #[prop(default = String::new())]
+    initial_a: String,
+    /// Pre-populated outcome B id (empty string = manual entry).
+    #[prop(default = String::new())]
+    initial_b: String,
+) -> impl IntoView {
+    let (id_a, set_id_a) = create_signal(initial_a.clone());
+    let (id_b, set_id_b) = create_signal(initial_b.clone());
     let (result, set_result) = create_signal::<Option<CompareResult>>(None);
     let (status, set_status) = create_signal::<Option<String>>(None);
 
-    let load = move |_| {
-        let a = id_a.get();
-        let b = id_b.get();
+    let do_compare = move |a: String, b: String| {
         if a.is_empty() || b.is_empty() {
             set_status.set(Some("Provide both ids".into()));
             return;
         }
+        set_status.set(Some("Loading…".into()));
         spawn_local(async move {
             match out_api::compare_outcomes(&a, &b).await {
                 Ok(r) => {
@@ -29,6 +40,17 @@ pub fn CompareOutcomes() -> impl IntoView {
                 Err(e) => set_status.set(Some(format!("Error: {}", e.message))),
             }
         });
+    };
+
+    // Auto-load when both IDs are pre-populated from the duplicate workflow.
+    if !initial_a.is_empty() && !initial_b.is_empty() {
+        let a = initial_a;
+        let b = initial_b;
+        do_compare(a, b);
+    }
+
+    let load = move |_| {
+        do_compare(id_a.get(), id_b.get());
     };
 
     view! {
@@ -60,8 +82,8 @@ pub fn CompareOutcomes() -> impl IntoView {
                 let r_b = r.b.clone();
                 view! {
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
-                        {render_card("A", r_a, title_diff, abstract_diff, cert_diff)}
-                        {render_card("B", r_b, title_diff, abstract_diff, cert_diff)}
+                        {render_card("A — Current Draft", r_a, title_diff, abstract_diff, cert_diff)}
+                        {render_card("B — Existing Match", r_b, title_diff, abstract_diff, cert_diff)}
                     </div>
                     <div class="sv-card" style="margin-top:18px;background:rgba(245,197,24,0.05);">
                         <div style="font-size:13px;color:#F5C518;font-weight:600;">
@@ -84,7 +106,7 @@ fn render_card(
     let highlight = |diff: bool| if diff { "background:rgba(245,158,11,0.10);padding:8px;border-radius:4px;" } else { "padding:8px;" };
     view! {
         <div class="sv-card">
-            <h3 style="margin:0 0 12px;font-size:14px;color:#F5C518;">{format!("Outcome {}", label)}</h3>
+            <h3 style="margin:0 0 12px;font-size:14px;color:#F5C518;">{label}</h3>
             <div style="font-size:11px;color:#A0A0B0;font-family:monospace;">{o.id.clone()}</div>
             <div style="margin-top:12px;">
                 <label class="sv-label">"Type"</label>

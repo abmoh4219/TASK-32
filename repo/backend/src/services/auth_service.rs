@@ -35,19 +35,23 @@ impl AuthService {
         Self { db }
     }
 
-    /// Check and enforce account lockout: 5 failed attempts within a 15-minute
-    /// sliding window. The lockout expires automatically when the window passes.
-    /// Checks both username-based AND IP-based attempt counts.
-    pub async fn check_lockout(&self, username: &str, ip: &str) -> AppResult<()> {
+    /// Check and enforce account lockout: 5 failed attempts **per account**
+    /// within a 15-minute sliding window. The lockout expires automatically
+    /// when the window passes.
+    ///
+    /// **Cycle 2 fix**: lockout is now account-centric. The old `username OR
+    /// ip_address` query was too broad — on shared/NAT networks a single
+    /// attacker could lock out unrelated accounts on the same IP. IP-based
+    /// abuse throttling is handled separately by the rate-limit middleware.
+    pub async fn check_lockout(&self, username: &str, _ip: &str) -> AppResult<()> {
         let window_start = (Utc::now() - Duration::minutes(15)).to_rfc3339();
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM login_attempts
-             WHERE (username = ? OR ip_address = ?)
+             WHERE username = ?
              AND attempted_at > ?
              AND success = 0",
         )
         .bind(username)
-        .bind(ip)
         .bind(&window_start)
         .fetch_one(&self.db)
         .await?;
@@ -149,6 +153,15 @@ impl AuthService {
             .execute(&self.db)
             .await?;
         Ok(())
+    }
+
+    /// Get a single user by id.
+    pub async fn get_user(&self, user_id: &str) -> AppResult<User> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_optional(&self.db)
+            .await?
+            .ok_or(AppError::NotFound)
     }
 
     /// List all users (admin-facing). Excludes password_hash for safety.

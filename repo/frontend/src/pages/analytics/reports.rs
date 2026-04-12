@@ -13,16 +13,25 @@ pub fn ReportsTab() -> impl IntoView {
     let (report_type, set_report_type) = create_signal("fund".to_string());
     let (format_kind, set_format_kind) = create_signal("csv".to_string());
     let (period, set_period) = create_signal(String::new());
+    let (date_from, set_date_from) = create_signal(String::new());
+    let (date_to, set_date_to) = create_signal(String::new());
+    let (category, set_category) = create_signal(String::new());
+    let (role, set_role) = create_signal(String::new());
 
     let schedule = move |_| {
         let p = period.get();
+        let df = date_from.get();
+        let dt = date_to.get();
+        let cat = category.get();
+        let rl = role.get();
         let req = an_api::ScheduleReportRequest {
             report_type: report_type.get(),
             format: format_kind.get(),
             period: if p.is_empty() { None } else { Some(p) },
-            date_from: None,
-            date_to: None,
-            category: None,
+            date_from: if df.is_empty() { None } else { Some(df) },
+            date_to: if dt.is_empty() { None } else { Some(dt) },
+            category: if cat.is_empty() { None } else { Some(cat) },
+            role: if rl.is_empty() { None } else { Some(rl) },
         };
         spawn_local(async move {
             match an_api::schedule_report(req).await {
@@ -99,6 +108,27 @@ pub fn ReportsTab() -> impl IntoView {
                     prop:value=move || period.get()
                     on:input=move |ev| set_period.set(event_target_value(&ev))
                 />
+                <label class="sv-label" style="margin-top:10px;">"Date from"</label>
+                <input class="sv-input" type="date"
+                    prop:value=move || date_from.get()
+                    on:input=move |ev| set_date_from.set(event_target_value(&ev))/>
+                <label class="sv-label" style="margin-top:10px;">"Date to"</label>
+                <input class="sv-input" type="date"
+                    prop:value=move || date_to.get()
+                    on:input=move |ev| set_date_to.set(event_target_value(&ev))/>
+                <label class="sv-label" style="margin-top:10px;">"Category"</label>
+                <input class="sv-input" placeholder="e.g. grants"
+                    prop:value=move || category.get()
+                    on:input=move |ev| set_category.set(event_target_value(&ev))/>
+                <label class="sv-label" style="margin-top:10px;">"Role"</label>
+                <select class="sv-input" on:change=move |ev| set_role.set(event_target_value(&ev))>
+                    <option value="">"All roles"</option>
+                    <option value="administrator">"Administrator"</option>
+                    <option value="content_curator">"Content Curator"</option>
+                    <option value="reviewer">"Reviewer"</option>
+                    <option value="finance_manager">"Finance Manager"</option>
+                    <option value="store_manager">"Store Manager"</option>
+                </select>
                 <button class="sv-btn-primary" style="margin-top:14px;width:100%;" on:click=schedule>
                     "Generate Report"
                 </button>
@@ -108,11 +138,18 @@ pub fn ReportsTab() -> impl IntoView {
                         style="text-align:center;font-size:11px;padding:8px;"
                         on:click=move |_| {
                             let p = period.get();
+                            let df = date_from.get();
+                            let dt = date_to.get();
+                            let cat = category.get();
+                            let rl = role.get();
                             let req = an_api::ScheduleReportRequest {
                                 report_type: report_type.get(),
                                 format: "csv".into(),
                                 period: if p.is_empty() { None } else { Some(p) },
-                                date_from: None, date_to: None, category: None,
+                                date_from: if df.is_empty() { None } else { Some(df) },
+                                date_to: if dt.is_empty() { None } else { Some(dt) },
+                                category: if cat.is_empty() { None } else { Some(cat) },
+                                role: if rl.is_empty() { None } else { Some(rl) },
                             };
                             spawn_local(async move {
                                 match an_api::schedule_report(req).await {
@@ -132,11 +169,18 @@ pub fn ReportsTab() -> impl IntoView {
                         style="text-align:center;font-size:11px;padding:8px;"
                         on:click=move |_| {
                             let p = period.get();
+                            let df = date_from.get();
+                            let dt = date_to.get();
+                            let cat = category.get();
+                            let rl = role.get();
                             let req = an_api::ScheduleReportRequest {
                                 report_type: report_type.get(),
                                 format: "pdf".into(),
                                 period: if p.is_empty() { None } else { Some(p) },
-                                date_from: None, date_to: None, category: None,
+                                date_from: if df.is_empty() { None } else { Some(df) },
+                                date_to: if dt.is_empty() { None } else { Some(dt) },
+                                category: if cat.is_empty() { None } else { Some(cat) },
+                                role: if rl.is_empty() { None } else { Some(rl) },
                             };
                             spawn_local(async move {
                                 match an_api::schedule_report(req).await {

@@ -207,6 +207,73 @@ async fn test_download_token_single_use_via_http() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
+/// Finding C regression: fund_summary endpoint supports custom query-string filters.
+#[tokio::test]
+async fn test_fund_summary_custom_filters() {
+    let (app, _state) = setup_test_app().await;
+    let (session, _) = login_as(app.clone(), "finance", "Scholar2024!").await;
+
+    // Filter by category — only "grants" transactions.
+    let req = Request::builder()
+        .uri("/api/analytics/funds?category=grants")
+        .header("cookie", session.clone())
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let txns = body["transactions"].as_array().unwrap();
+    assert!(txns.iter().all(|t| t["category"] == "grants"),
+        "filtered results should only contain 'grants' category");
+}
+
+/// Finding C regression: old unfiltered fund_summary call still works.
+#[tokio::test]
+async fn test_fund_summary_no_filter_backward_compat() {
+    let (app, _state) = setup_test_app().await;
+    let (session, _) = login_as(app.clone(), "finance", "Scholar2024!").await;
+    let req = Request::builder()
+        .uri("/api/analytics/funds")
+        .header("cookie", session)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+/// Finding C regression: schedule_report accepts filter fields.
+#[tokio::test]
+async fn test_schedule_report_with_filters() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "finance", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/analytics/reports/schedule")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({
+                "report_type":"fund",
+                "format":"csv",
+                "period":null,
+                "date_from":"2026-01-01",
+                "date_to":"2026-12-31",
+                "category":"grants"
+            }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["status"], "complete");
+    // Verify filters are stored in the filters JSON column.
+    let filters: Value = serde_json::from_str(body["filters"].as_str().unwrap()).unwrap();
+    assert_eq!(filters["category"], "grants");
+}
+
 #[tokio::test]
 async fn test_download_report_requires_auth_and_ownership() {
     // Regression: the download endpoint used to be reachable by anyone in

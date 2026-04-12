@@ -109,12 +109,14 @@ fn test_schedule_report_dto_expanded_filters() {
         date_from: None,
         date_to: None,
         category: None,
+        role: None,
     };
     let v = serde_json::to_value(&old).unwrap();
     assert_eq!(v["period"], "2026-Q1");
     assert!(v.get("date_from").is_none(), "None fields should be skipped");
+    assert!(v.get("role").is_none(), "None role should be skipped");
 
-    // New-style: all filter fields.
+    // New-style: all filter fields including role.
     let new = ScheduleReportRequest {
         report_type: "fund".into(),
         format: "pdf".into(),
@@ -122,10 +124,12 @@ fn test_schedule_report_dto_expanded_filters() {
         date_from: Some("2026-01-01".into()),
         date_to: Some("2026-03-31".into()),
         category: Some("research".into()),
+        role: Some("finance_manager".into()),
     };
     let v = serde_json::to_value(&new).unwrap();
     assert_eq!(v["date_from"], "2026-01-01");
     assert_eq!(v["category"], "research");
+    assert_eq!(v["role"], "finance_manager");
 }
 
 #[test]

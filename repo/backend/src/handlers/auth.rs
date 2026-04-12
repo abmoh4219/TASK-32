@@ -118,8 +118,8 @@ pub async fn login(
             AuditAction::Login,
             "user",
             Some(&outcome.user.id),
-            None,
-            None,
+            Some(AuditService::compute_hash("no_session")),
+            Some(AuditService::compute_hash(&outcome.session_id)),
             Some(&ip),
         )
         .await;
@@ -149,14 +149,18 @@ pub async fn logout(
     }
     if let Some(u) = user {
         let actor_id = u.0 .0.id.clone();
+        let session_id = cookies
+            .get("sv_session")
+            .map(|c| c.value().to_string())
+            .unwrap_or_default();
         let _ = AuditService::new(state.db.clone())
             .log(
                 &actor_id,
                 AuditAction::Logout,
                 "user",
                 Some(&actor_id),
-                None,
-                None,
+                Some(AuditService::compute_hash(&session_id)),
+                Some(crate::services::audit_service::HASH_ENTITY_DELETED.to_string()),
                 None,
             )
             .await;
@@ -286,7 +290,7 @@ pub async fn admin_create_user(
             AuditAction::Create,
             "user",
             Some(&user.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&user.username)),
             None,
         )
@@ -306,6 +310,9 @@ pub async fn admin_change_role(
     Json(req): Json<ChangeRoleRequest>,
 ) -> AppResult<Json<UserSummary>> {
     let svc = AuthService::new(state.db.clone());
+    // Capture before-state for audit.
+    let before_user = svc.get_user(&id).await?;
+    let before_hash = AuditService::compute_hash(&before_user.role);
     let user = svc.change_role(&id, &req.role).await?;
     AuditService::new(state.db.clone())
         .log(
@@ -313,7 +320,7 @@ pub async fn admin_change_role(
             AuditAction::RoleChange,
             "user",
             Some(&id),
-            None,
+            Some(before_hash),
             Some(AuditService::compute_hash(&req.role)),
             None,
         )
@@ -336,6 +343,8 @@ pub async fn admin_set_active(
     Json(req): Json<ActiveRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     let svc = AuthService::new(state.db.clone());
+    let before_user = svc.get_user(&id).await?;
+    let before_hash = AuditService::compute_hash(&format!("active={}", before_user.is_active == 1));
     svc.set_active(&id, req.active).await?;
     AuditService::new(state.db.clone())
         .log(
@@ -343,7 +352,7 @@ pub async fn admin_set_active(
             AuditAction::Update,
             "user",
             Some(&id),
-            None,
+            Some(before_hash),
             Some(AuditService::compute_hash(&format!("active={}", req.active))),
             None,
         )
@@ -360,18 +369,36 @@ pub async fn admin_audit_log(
 }
 
 /// POST /api/auth/refresh-csrf — rotates the CSRF token for the current session.
+/// Audited as a security-state mutation with before/after hashes of the old and
+/// new token values.
 pub async fn refresh_csrf(
     State(state): State<AppState>,
     cookies: CookieJar,
     session: Option<axum::extract::Extension<CurrentSession>>,
+    user: Option<axum::extract::Extension<CurrentUser>>,
 ) -> AppResult<(CookieJar, Json<serde_json::Value>)> {
     let session = session.ok_or(AppError::Auth)?.0;
+    let old_token = session.csrf_token.clone();
     let new_token = crate::security::csrf::generate_token();
     sqlx::query("UPDATE sessions SET csrf_token = ? WHERE id = ?")
         .bind(&new_token)
         .bind(&session.session_id)
         .execute(&state.db)
         .await?;
+    // Audit the CSRF rotation as a security-state change.
+    if let Some(u) = user {
+        let _ = AuditService::new(state.db.clone())
+            .log(
+                &u.0 .0.id,
+                AuditAction::Update,
+                "csrf_token",
+                Some(&session.session_id),
+                Some(AuditService::compute_hash(&old_token)),
+                Some(AuditService::compute_hash(&new_token)),
+                None,
+            )
+            .await;
+    }
     let csrf_cookie = Cookie::build(("csrf_token", new_token.clone()))
         .http_only(false)
         .secure(cookies_secure())

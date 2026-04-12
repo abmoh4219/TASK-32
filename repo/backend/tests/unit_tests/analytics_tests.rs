@@ -113,7 +113,7 @@ async fn test_schedule_report_marks_complete_with_token() {
     std::fs::create_dir_all(&tmp).unwrap();
     let s = AnalyticsService::new(pool, tmp);
     let row = s
-        .schedule_report("fund", "csv", None, "u-finance")
+        .schedule_report("fund", "csv", None, None, None, None, None, "u-finance")
         .await
         .unwrap();
     assert_eq!(row.status, "complete");
@@ -128,7 +128,7 @@ async fn test_download_token_single_use_clears() {
     std::fs::create_dir_all(&tmp).unwrap();
     let s = AnalyticsService::new(pool, tmp);
     let row = s
-        .schedule_report("fund", "csv", None, "u-finance")
+        .schedule_report("fund", "csv", None, None, None, None, None, "u-finance")
         .await
         .unwrap();
     let token = row.download_token.unwrap();
@@ -152,7 +152,7 @@ async fn test_download_report_rejects_other_user() {
     std::fs::create_dir_all(&tmp).unwrap();
     let s = AnalyticsService::new(pool, tmp);
     let row = s
-        .schedule_report("fund", "csv", None, "u-finance")
+        .schedule_report("fund", "csv", None, None, None, None, None, "u-finance")
         .await
         .unwrap();
     let token = row.download_token.unwrap();

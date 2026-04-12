@@ -181,6 +181,14 @@ impl StoreService {
         Ok(row)
     }
 
+    pub async fn get_promotion(&self, id: &str) -> AppResult<Promotion> {
+        sqlx::query_as::<_, Promotion>("SELECT * FROM promotions WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.db)
+            .await?
+            .ok_or(AppError::NotFound)
+    }
+
     pub async fn deactivate_promotion(&self, id: &str) -> AppResult<()> {
         sqlx::query("UPDATE promotions SET is_active = 0 WHERE id = ?")
             .bind(id)
@@ -191,6 +199,11 @@ impl StoreService {
 
     /// Run a cart through the promotion engine and persist the resulting order
     /// + per-line trace.
+    ///
+    /// **Trust boundary**: client-supplied `unit_price` and `product_name` are
+    /// **ignored**. Authoritative product rows are loaded from the database by
+    /// `product_id`; only server-derived pricing and names are used for totals
+    /// and persisted in order/order-item records.
     pub async fn create_order(
         &self,
         user_id: &str,
@@ -199,8 +212,12 @@ impl StoreService {
         if cart.is_empty() {
             return Err(AppError::Validation("cart is empty".into()));
         }
+
+        // ── Server-side price/name resolution ──────────────────────────
+        let server_cart = self.resolve_cart_from_db(&cart).await?;
+
         let promos = self.list_promotions().await?;
-        let result = apply_best_promotion(&cart, &promos);
+        let result = apply_best_promotion(&server_cart, &promos);
 
         let order_id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
@@ -262,6 +279,46 @@ impl StoreService {
                 .await?
         };
         Ok(rows)
+    }
+
+    /// Resolve a client-submitted cart against the products table.
+    /// Client-supplied `unit_price` and `product_name` are discarded; the
+    /// returned `CartItem` values use only server-authoritative data.
+    /// Rejects the request if any product is missing, inactive, or has
+    /// invalid quantity.
+    pub async fn resolve_cart_from_db(&self, cart: &[CartItem]) -> AppResult<Vec<CartItem>> {
+        let mut resolved = Vec::with_capacity(cart.len());
+        for item in cart {
+            if item.quantity <= 0 {
+                return Err(AppError::Validation(format!(
+                    "quantity must be > 0 for product {}",
+                    item.product_id
+                )));
+            }
+            let product = sqlx::query_as::<_, Product>(
+                "SELECT * FROM products WHERE id = ?",
+            )
+            .bind(&item.product_id)
+            .fetch_optional(&self.db)
+            .await?
+            .ok_or_else(|| AppError::Validation(format!(
+                "product not found: {}",
+                item.product_id
+            )))?;
+            if product.is_active != 1 {
+                return Err(AppError::Validation(format!(
+                    "product is inactive: {}",
+                    item.product_id
+                )));
+            }
+            resolved.push(CartItem {
+                product_id: product.id,
+                product_name: product.name,
+                quantity: item.quantity,
+                unit_price: product.price,
+            });
+        }
+        Ok(resolved)
     }
 
     pub async fn get_order_with_items(&self, id: &str) -> AppResult<(Order, Vec<OrderItem>)> {

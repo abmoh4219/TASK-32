@@ -116,6 +116,9 @@ pub struct ScheduleReportRequest {
     /// Optional fund category filter.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// Optional role/source dimension filter (e.g. "finance_manager").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 pub async fn members() -> Result<MemberMetrics, ApiError> {
@@ -130,8 +133,42 @@ pub async fn events() -> Result<EventSummary, ApiError> {
     get_json("/api/analytics/events").await
 }
 
+/// Structured filter for fund summary and analytics endpoints.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct AnalyticsFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub period: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_to: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+}
+
+impl AnalyticsFilter {
+    /// Build a query string from populated fields.
+    pub fn to_query_string(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(ref v) = self.period { parts.push(format!("period={}", v)); }
+        if let Some(ref v) = self.date_from { parts.push(format!("date_from={}", v)); }
+        if let Some(ref v) = self.date_to { parts.push(format!("date_to={}", v)); }
+        if let Some(ref v) = self.category { parts.push(format!("category={}", v)); }
+        if let Some(ref v) = self.role { parts.push(format!("role={}", v)); }
+        if parts.is_empty() { String::new() } else { format!("?{}", parts.join("&")) }
+    }
+}
+
 pub async fn fund_summary() -> Result<FundSummary, ApiError> {
     get_json("/api/analytics/funds").await
+}
+
+/// Fund summary with custom filters applied.
+pub async fn fund_summary_filtered(filter: &AnalyticsFilter) -> Result<FundSummary, ApiError> {
+    let qs = filter.to_query_string();
+    get_json(&format!("/api/analytics/funds{}", qs)).await
 }
 
 pub async fn approval_cycles() -> Result<ApprovalStats, ApiError> {

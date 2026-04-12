@@ -9,21 +9,47 @@ use crate::components::charts::{BarChart, LineChart};
 
 #[component]
 pub fn DashboardTab() -> impl IntoView {
+    // ── Custom analytics filters ──────────────���───────────────────────
+    let (filter_period, set_filter_period) = create_signal(String::new());
+    let (filter_date_from, set_filter_date_from) = create_signal(String::new());
+    let (filter_date_to, set_filter_date_to) = create_signal(String::new());
+    let (filter_category, set_filter_category) = create_signal(String::new());
+    let (filter_role, set_filter_role) = create_signal(String::new());
+    let (filter_version, set_filter_version) = create_signal(0u32);
+
     let members = create_resource(|| (), |_| async move { an_api::members().await });
-    let funds = create_resource(|| (), |_| async move { an_api::fund_summary().await });
+    let funds = create_resource(
+        move || (filter_version.get(), filter_period.get(), filter_date_from.get(), filter_date_to.get(), filter_category.get(), filter_role.get()),
+        move |(_v, period, df, dt, cat, role)| async move {
+            let filter = an_api::AnalyticsFilter {
+                period: if period.is_empty() { None } else { Some(period) },
+                date_from: if df.is_empty() { None } else { Some(df) },
+                date_to: if dt.is_empty() { None } else { Some(dt) },
+                category: if cat.is_empty() { None } else { Some(cat) },
+                role: if role.is_empty() { None } else { Some(role) },
+            };
+            an_api::fund_summary_filtered(&filter).await
+        },
+    );
     let approvals = create_resource(|| (), |_| async move { an_api::approval_cycles().await });
     let events = create_resource(|| (), |_| async move { an_api::events().await });
     let (status, set_status) = create_signal::<Option<String>>(None);
 
     let schedule_csv = move |_| {
+        let p = filter_period.get();
+        let df = filter_date_from.get();
+        let dt = filter_date_to.get();
+        let cat = filter_category.get();
+        let rl = filter_role.get();
         spawn_local(async move {
             let req = an_api::ScheduleReportRequest {
                 report_type: "fund".into(),
                 format: "csv".into(),
-                period: None,
-                date_from: None,
-                date_to: None,
-                category: None,
+                period: if p.is_empty() { None } else { Some(p) },
+                date_from: if df.is_empty() { None } else { Some(df) },
+                date_to: if dt.is_empty() { None } else { Some(dt) },
+                category: if cat.is_empty() { None } else { Some(cat) },
+                role: if rl.is_empty() { None } else { Some(rl) },
             };
             match an_api::schedule_report(req).await {
                 Ok(r) => set_status.set(Some(format!("Scheduled report {}", r.id))),
@@ -87,6 +113,52 @@ pub fn DashboardTab() -> impl IntoView {
                         Err(_) => ().into_view(),
                     })}
                 </Suspense>
+            </div>
+
+            // ── Custom filter panel ──────────────────────────────────────
+            <div class="sv-card" style="margin-bottom:16px;">
+                <h3 style="margin:0 0 12px;font-size:14px;color:#F5C518;">"Filters"</h3>
+                <div style="display:grid;grid-template-columns:repeat(5,1fr) auto;gap:10px;align-items:end;">
+                    <div>
+                        <label class="sv-label">"Period"</label>
+                        <input class="sv-input" placeholder="2026-04"
+                            prop:value=move || filter_period.get()
+                            on:input=move |ev| set_filter_period.set(event_target_value(&ev))/>
+                    </div>
+                    <div>
+                        <label class="sv-label">"From"</label>
+                        <input class="sv-input" type="date"
+                            prop:value=move || filter_date_from.get()
+                            on:input=move |ev| set_filter_date_from.set(event_target_value(&ev))/>
+                    </div>
+                    <div>
+                        <label class="sv-label">"To"</label>
+                        <input class="sv-input" type="date"
+                            prop:value=move || filter_date_to.get()
+                            on:input=move |ev| set_filter_date_to.set(event_target_value(&ev))/>
+                    </div>
+                    <div>
+                        <label class="sv-label">"Category"</label>
+                        <input class="sv-input" placeholder="e.g. grants"
+                            prop:value=move || filter_category.get()
+                            on:input=move |ev| set_filter_category.set(event_target_value(&ev))/>
+                    </div>
+                    <div>
+                        <label class="sv-label">"Role"</label>
+                        <select class="sv-input" on:change=move |ev| set_filter_role.set(event_target_value(&ev))>
+                            <option value="">"All roles"</option>
+                            <option value="administrator">"Administrator"</option>
+                            <option value="content_curator">"Content Curator"</option>
+                            <option value="reviewer">"Reviewer"</option>
+                            <option value="finance_manager">"Finance Manager"</option>
+                            <option value="store_manager">"Store Manager"</option>
+                        </select>
+                    </div>
+                    <button class="sv-btn-primary" style="height:38px;"
+                        on:click=move |_| set_filter_version.update(|v| *v += 1)>
+                        "Apply"
+                    </button>
+                </div>
             </div>
 
             <div class="sv-card">

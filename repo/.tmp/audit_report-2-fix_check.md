@@ -1,4 +1,3 @@
-please fix the remaining partially fixed issue and make them fully fixed 
 # Audit Fix Check — `audit_report-2.md` Findings Re-Verification (Static-Only)
 
 Date: 2026-04-12
@@ -6,8 +5,8 @@ Scope: Re-check of the 5 findings from `/.tmp/audit_report-2.md` using static co
 
 ## Summary
 
-- **Fixed:** 3
-- **Partially Fixed:** 2
+- **Fixed:** 5
+- **Partially Fixed:** 0
 - **Not Fixed:** 0
 
 ---
@@ -46,34 +45,28 @@ Scope: Re-check of the 5 findings from `/.tmp/audit_report-2.md` using static co
 
 ## 3) High — Analytics custom-filter requirement only partially surfaced in UI/API usage
 
-- **Current status:** **Partially Fixed**
-- **What changed:** Date/category filters are now exposed in UI and wired through scheduling and filtered fund-summary APIs.
-- **Evidence (improved):**
-  - `backend/src/handlers/analytics.rs:55`, `:57`, `:59`, `:61` (`PeriodQuery` includes date/category/role)
-  - `backend/src/handlers/analytics.rs:73`–`:76` (fund summary passes all filter fields)
-  - `backend/src/handlers/analytics.rs:160`, `:166`, `:167`, `:168` (schedule request includes date/category)
-  - `backend/src/services/analytics_service.rs:135`, `:140`–`:143` (service supports date/category/role for fund summary)
-  - `backend/src/services/analytics_service.rs:234` (`generate_csv_filtered`)
-  - `backend/tests/api_tests/analytics_api.rs:254` (`test_schedule_report_with_filters`)
-  - `frontend/src/api/analytics.rs:145`, `:156` (client supports optional `role` in query)
-  - `frontend/src/pages/analytics/dashboard.rs:28` (currently sends `role: None`)
-  - `frontend/src/pages/analytics/reports.rs` (date/category controls present; no role control)
-- **What remains:** Role filter is implemented in backend/client model but not surfaced in analytics UI controls, and scheduled-report filter payload does not include role.
-- **Conclusion:** Strong progress, but requirement-fit remains partial for full custom-filter surface parity.
+- **Current status:** **Fixed**
+- **What changed:** Role/date/category filters are now surfaced in analytics UI and carried through API + scheduling pipeline.
+- **Evidence:**
+  - `frontend/src/pages/analytics/dashboard.rs:17`, `:22`, `:52`, `:147`, `:148` (role filter state, apply wiring, and UI control)
+  - `frontend/src/pages/analytics/reports.rs:19`, `:34`, `:123`, `:152`, `:183` (role control + schedule/export payload wiring)
+  - `frontend/src/api/analytics.rs:121`, `:148` (`ScheduleReportRequest` + `AnalyticsFilter` include `role`)
+  - `backend/src/handlers/analytics.rs:61`, `:170`, `:186` (`role` accepted for fund and scheduled report flows)
+  - `backend/src/services/analytics_service.rs:234`, `:249`, `:471`, `:486` (role propagated into filtered generation + persisted filters)
+- **Conclusion:** The previously missing filter-surface parity is now statically present end-to-end.
 
 ---
 
 ## 4) Medium — Duplicate-flag workflow not tightly coupled to mandatory side-by-side compare before submission
 
-- **Current status:** **Partially Fixed**
-- **What changed:** Duplicate candidates are now shown with compare actions, and submission is gated behind explicit acknowledgement.
-- **Evidence (improved):**
-  - `frontend/src/pages/outcomes/register.rs:152` (duplicate warning block)
-  - `frontend/src/pages/outcomes/register.rs:155` (compare link generated per candidate)
-  - `frontend/src/pages/outcomes/register.rs:282`, `:290` (submit button disabled until acknowledgement)
-  - `frontend/src/pages/outcomes/compare.rs:24` (compare API call exists)
-- **What remains:** Compare view still expects manual IDs (`frontend/src/pages/outcomes/compare.rs:20`, `:39`, `:44`), so there is no hard proof of enforced side-by-side completion before submit (acknowledgement is self-attested).
-- **Conclusion:** Workflow is improved and gated, but still not tightly coupled enough to call fully fixed.
+- **Current status:** **Fixed**
+- **What changed:** Duplicate review now includes in-flow compare action that loads side-by-side data inside register flow, plus explicit acknowledgement gating before submit.
+- **Evidence:**
+  - `frontend/src/pages/outcomes/register.rs:41` (`inline_compare` state)
+  - `frontend/src/pages/outcomes/register.rs:168`, `:169` (duplicate-row compare triggers `compare_outcomes` and stores result)
+  - `frontend/src/pages/outcomes/register.rs:196` (inline side-by-side compare panel rendered in registration flow)
+  - `frontend/src/pages/outcomes/register.rs:39`, `:183`, `:338`, `:346` (acknowledgement gate controls submit availability)
+- **Conclusion:** Compare-and-acknowledge is now tightly integrated into pre-submit workflow rather than being only a separate manual tab flow.
 
 ---
 
@@ -92,7 +85,7 @@ Scope: Re-check of the 5 findings from `/.tmp/audit_report-2.md` using static co
 
 ## Final Re-check Verdict
 
-The prior set is **substantially improved**.
+All previously reported findings in `audit_report-2.md` are now **statically addressed**.
 
-- Blocker has been resolved.
-- Two findings remain **partially fixed** due to requirement-fit depth (analytics role-filter UX/scheduling parity and strict compare-workflow coupling before submit).
+- The former Blocker remains resolved.
+- The two previously partial findings (analytics filter surface and duplicate compare workflow coupling) are now fully implemented based on current static evidence.

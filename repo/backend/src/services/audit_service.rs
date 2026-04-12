@@ -46,8 +46,10 @@ impl AuditService {
         after_hash: Option<String>,
         ip_address: Option<&str>,
     ) -> AppResult<()> {
-        // Enforce hash completeness. If both are missing, supply sentinels
-        // so auditors always have a hash pair to inspect.
+        // Enforce hash completeness: every audit row must have both hashes.
+        // If both are missing, fill with sentinels; if one side is missing,
+        // fill the gap with the appropriate sentinel so auditors always see a
+        // complete before/after pair.
         let (before_hash, after_hash) = match (&before_hash, &after_hash) {
             (None, None) => {
                 tracing::warn!(
@@ -59,6 +61,14 @@ impl AuditService {
                     Some(HASH_ENTITY_CREATED.to_string()),
                     Some(HASH_ENTITY_CREATED.to_string()),
                 )
+            }
+            (None, Some(a)) => {
+                tracing::debug!(action = %action.as_str(), "audit before_hash missing — filling sentinel");
+                (Some(HASH_ENTITY_CREATED.to_string()), Some(a.clone()))
+            }
+            (Some(b), None) => {
+                tracing::debug!(action = %action.as_str(), "audit after_hash missing — filling sentinel");
+                (Some(b.clone()), Some(HASH_ENTITY_DELETED.to_string()))
             }
             _ => (before_hash, after_hash),
         };

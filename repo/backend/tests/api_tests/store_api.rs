@@ -261,6 +261,90 @@ async fn test_preview_checkout_requires_auth() {
 }
 
 #[tokio::test]
+/// Finding A regression: client submits tampered low unit_price — server ignores
+/// and recalculates from the products table.
+async fn test_checkout_ignores_client_price_tampering() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "store", "Scholar2024!").await;
+    let cookie = format!("{}; csrf_token={}", session, csrf);
+
+    // Submit with a tampered unit_price of $0.01 instead of the real $39.99.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/store/checkout")
+        .header("content-type", "application/json")
+        .header("cookie", cookie)
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({
+                "items": [
+                    {"product_id":"prod-book-1","product_name":"TAMPERED","quantity":1,"unit_price":0.01}
+                ]
+            }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let subtotal = body["order"]["subtotal"].as_f64().unwrap();
+    // Server should use the real price ($39.99), not the tampered $0.01.
+    assert!(subtotal > 39.0, "subtotal must use server price, got {}", subtotal);
+    // Also verify persisted product_name is server-derived, not "TAMPERED".
+    let order_id = body["order"]["id"].as_str().unwrap();
+    let lines = body["result"]["line_items"].as_array().unwrap();
+    let persisted_name = lines[0]["item"]["product_name"].as_str().unwrap();
+    assert_eq!(persisted_name, "Linear Algebra Textbook", "server should override client product_name");
+}
+
+#[tokio::test]
+/// Finding A regression: inactive product must be rejected.
+async fn test_checkout_rejects_inactive_product() {
+    let (app, state) = setup_test_app().await;
+    // Deactivate a product directly in the DB.
+    sqlx::query("UPDATE products SET is_active = 0 WHERE id = 'prod-book-2'")
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let (session, csrf) = login_as(app.clone(), "store", "Scholar2024!").await;
+    let cookie = format!("{}; csrf_token={}", session, csrf);
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/store/checkout")
+        .header("content-type", "application/json")
+        .header("cookie", cookie)
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({"items":[{"product_id":"prod-book-2","product_name":"X","quantity":1,"unit_price":10.0}]}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST,
+        "inactive product must be rejected");
+}
+
+#[tokio::test]
+/// Finding A regression: missing product must be rejected.
+async fn test_checkout_rejects_missing_product() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "store", "Scholar2024!").await;
+    let cookie = format!("{}; csrf_token={}", session, csrf);
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/store/checkout")
+        .header("content-type", "application/json")
+        .header("cookie", cookie)
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({"items":[{"product_id":"nonexistent","product_name":"X","quantity":1,"unit_price":10.0}]}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST,
+        "missing product must be rejected");
+}
+
+#[tokio::test]
 async fn test_reviewer_cannot_create_promotion() {
     let (app, _state) = setup_test_app().await;
     let (session, csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;

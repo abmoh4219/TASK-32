@@ -106,7 +106,7 @@ pub async fn export_csv(
             AuditAction::ExportReport,
             "csv",
             Some(&req.report_type),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&format!("{} bytes", bytes.len()))),
             None,
         )
@@ -138,7 +138,7 @@ pub async fn export_pdf(
             AuditAction::ExportReport,
             "pdf",
             Some(&req.report_type),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&format!("{} bytes", bytes.len()))),
             None,
         )
@@ -161,6 +161,13 @@ pub struct ScheduleReportRequest {
     pub report_type: String,
     pub format: String,
     pub period: Option<String>,
+    /// Optional custom filters flowed through to CSV/PDF generation and stored
+    /// in the `filters` JSON column for auditability.
+    pub date_from: Option<String>,
+    pub date_to: Option<String>,
+    pub category: Option<String>,
+    /// Restrict to records created by users with this role (e.g. "finance_manager").
+    pub role: Option<String>,
 }
 
 pub async fn schedule_report(
@@ -169,7 +176,16 @@ pub async fn schedule_report(
     Json(req): Json<ScheduleReportRequest>,
 ) -> AppResult<Json<ScheduledReport>> {
     let row = analytics(&state)
-        .schedule_report(&req.report_type, &req.format, req.period.as_deref(), &user.id)
+        .schedule_report(
+            &req.report_type,
+            &req.format,
+            req.period.as_deref(),
+            req.date_from.as_deref(),
+            req.date_to.as_deref(),
+            req.category.as_deref(),
+            req.role.as_deref(),
+            &user.id,
+        )
         .await?;
     AuditService::new(state.db.clone())
         .log(
@@ -177,7 +193,7 @@ pub async fn schedule_report(
             AuditAction::ExportReport,
             "scheduled_report",
             Some(&row.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&row.id)),
             None,
         )

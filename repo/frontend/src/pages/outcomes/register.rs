@@ -5,7 +5,7 @@ use leptos::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::api::outcomes::{
-    self as out_api, AddContributorInput, CreateOutcomeInput, DuplicateCandidate,
+    self as out_api, AddContributorInput, CompareResult, CreateOutcomeInput, DuplicateCandidate,
 };
 use crate::logic::validation::{share_total_color, share_total_state, ShareTotalState};
 
@@ -35,6 +35,10 @@ pub fn RegisterOutcome() -> impl IntoView {
     // (filename, file_size_bytes) — simple tuple so the signal type compiles
     // on both WASM and native targets (the actual upload only runs in-browser).
     let (evidence_files, set_evidence_files) = create_signal::<Vec<(String, i64)>>(Vec::new());
+    // Duplicate-gating: user must acknowledge/compare duplicates before submit.
+    let (dup_acknowledged, set_dup_acknowledged) = create_signal(false);
+    // Inline compare result — shown when user clicks "Compare" on a duplicate.
+    let (inline_compare, set_inline_compare) = create_signal::<Option<CompareResult>>(None);
 
     let create_action = move |_| {
         let payload = CreateOutcomeInput {
@@ -138,21 +142,98 @@ pub fn RegisterOutcome() -> impl IntoView {
                         <h2 style="margin:0 0 16px;font-size:18px;color:#F5C518;">"Step 3 — Contributors"</h2>
                         {move || {
                             let dups = duplicates.get();
-                            if dups.is_empty() { ().into_view() } else {
+                            if dups.is_empty() {
+                                // No duplicates — auto-acknowledge so submit is enabled.
+                                set_dup_acknowledged.set(true);
+                                ().into_view()
+                            } else {
+                                let current_id = created_id.get().unwrap_or_default();
                                 view! {
                                     <div class="sv-card" style="background:rgba(245,158,11,0.10);border-color:rgba(245,158,11,0.40);margin-bottom:16px;">
                                         <div style="font-size:12px;color:#F59E0B;font-weight:600;margin-bottom:6px;">
-                                            {format!("⚠ {} similar outcome(s) found", dups.len())}
+                                            {format!("⚠ {} similar outcome(s) found — review before submitting", dups.len())}
                                         </div>
-                                        {dups.into_iter().take(5).map(|d| view! {
-                                            <div style="font-size:12px;color:#A0A0B0;">
-                                                {format!("• {} ({}, score {:.2})", d.title, d.reason, d.similarity_score)}
-                                            </div>
+                                        {dups.into_iter().take(5).map(|d| {
+                                            let cur = current_id.clone();
+                                            let dup_id = d.id.clone();
+                                            view! {
+                                                <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#A0A0B0;padding:4px 0;">
+                                                    <span>{format!("• {} ({}, score {:.2})", d.title, d.reason, d.similarity_score)}</span>
+                                                    <button
+                                                        class="sv-btn-secondary" style="font-size:10px;padding:3px 8px;"
+                                                        on:click=move |_| {
+                                                            let a = cur.clone();
+                                                            let b = dup_id.clone();
+                                                            spawn_local(async move {
+                                                                match out_api::compare_outcomes(&a, &b).await {
+                                                                    Ok(r) => set_inline_compare.set(Some(r)),
+                                                                    Err(e) => set_status.set(Some(format!("Compare error: {}", e.message))),
+                                                                }
+                                                            });
+                                                        }
+                                                    >
+                                                        "Compare"
+                                                    </button>
+                                                </div>
+                                            }
                                         }).collect_view()}
+                                        <div style="margin-top:10px;border-top:1px solid rgba(245,158,11,0.20);padding-top:10px;">
+                                            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#F59E0B;cursor:pointer;">
+                                                <input type="checkbox"
+                                                    prop:checked=move || dup_acknowledged.get()
+                                                    on:change=move |ev| {
+                                                        let checked = event_target_checked(&ev);
+                                                        set_dup_acknowledged.set(checked);
+                                                    }/>
+                                                "I have reviewed the duplicates and confirm this is a new outcome"
+                                            </label>
+                                        </div>
                                     </div>
                                 }.into_view()
                             }
                         }}
+                        // ── Inline side-by-side compare panel ──
+                        {move || inline_compare.get().map(|r| {
+                            let title_diff = r.a.title != r.b.title;
+                            let abstract_diff = r.a.abstract_snippet != r.b.abstract_snippet;
+                            let cert_diff = r.a.certificate_number != r.b.certificate_number;
+                            view! {
+                                <div class="sv-card" style="margin-bottom:16px;border-color:rgba(245,197,24,0.30);">
+                                    <h3 style="margin:0 0 12px;font-size:14px;color:#F5C518;">"Side-by-Side Compare"</h3>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:12px;">
+                                        <div>
+                                            <div style="font-weight:600;color:#F5C518;margin-bottom:6px;">"Current Draft"</div>
+                                            <div style="color:#A0A0B0;font-family:monospace;font-size:10px;margin-bottom:4px;">{r.a.id.clone()}</div>
+                                            <div style=if title_diff { "background:rgba(245,158,11,0.10);padding:4px;border-radius:3px;" } else { "padding:4px;" }>
+                                                <span style="color:#A0A0B0;">"Title: "</span>{r.a.title.clone()}
+                                            </div>
+                                            <div style=if abstract_diff { "background:rgba(245,158,11,0.10);padding:4px;border-radius:3px;margin-top:4px;" } else { "padding:4px;margin-top:4px;" }>
+                                                <span style="color:#A0A0B0;">"Abstract: "</span>{r.a.abstract_snippet.clone()}
+                                            </div>
+                                            <div style=if cert_diff { "background:rgba(245,158,11,0.10);padding:4px;border-radius:3px;margin-top:4px;" } else { "padding:4px;margin-top:4px;" }>
+                                                <span style="color:#A0A0B0;">"Certificate: "</span>{r.a.certificate_number.clone().unwrap_or_else(|| "—".into())}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div style="font-weight:600;color:#F5C518;margin-bottom:6px;">"Existing Match"</div>
+                                            <div style="color:#A0A0B0;font-family:monospace;font-size:10px;margin-bottom:4px;">{r.b.id.clone()}</div>
+                                            <div style=if title_diff { "background:rgba(245,158,11,0.10);padding:4px;border-radius:3px;" } else { "padding:4px;" }>
+                                                <span style="color:#A0A0B0;">"Title: "</span>{r.b.title.clone()}
+                                            </div>
+                                            <div style=if abstract_diff { "background:rgba(245,158,11,0.10);padding:4px;border-radius:3px;margin-top:4px;" } else { "padding:4px;margin-top:4px;" }>
+                                                <span style="color:#A0A0B0;">"Abstract: "</span>{r.b.abstract_snippet.clone()}
+                                            </div>
+                                            <div style=if cert_diff { "background:rgba(245,158,11,0.10);padding:4px;border-radius:3px;margin-top:4px;" } else { "padding:4px;margin-top:4px;" }>
+                                                <span style="color:#A0A0B0;">"Certificate: "</span>{r.b.certificate_number.clone().unwrap_or_else(|| "—".into())}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style="margin-top:10px;font-size:12px;color:#F5C518;font-weight:600;">
+                                        {format!("Similarity → title {:.2}, abstract {:.2}", r.title_similarity, r.abstract_similarity)}
+                                    </div>
+                                </div>
+                            }
+                        })}
                         <div style="display:grid;grid-template-columns:1fr 100px auto;gap:8px;align-items:end;">
                             <div>
                                 <label class="sv-label">"User id"</label>
@@ -253,7 +334,19 @@ pub fn RegisterOutcome() -> impl IntoView {
 
                         <div style="display:flex;gap:8px;margin-top:24px;">
                             <button class="sv-btn-secondary" on:click=move |_| set_step.set(Step::Details)>"← Back"</button>
-                            <button class="sv-btn-primary" on:click=submit_action>"Submit for review"</button>
+                            {move || {
+                                let enabled = dup_acknowledged.get();
+                                view! {
+                                    <button
+                                        class="sv-btn-primary"
+                                        prop:disabled=move || !enabled
+                                        style=move || if enabled { "" } else { "opacity:0.5;cursor:not-allowed;" }
+                                        on:click=submit_action
+                                    >
+                                        {if enabled { "Submit for review" } else { "Acknowledge duplicates first" }}
+                                    </button>
+                                }
+                            }}
                         </div>
                     }.into_view(),
                     Step::Done => view! {

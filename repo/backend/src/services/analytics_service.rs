@@ -230,6 +230,57 @@ impl AnalyticsService {
 
     // ─── Exports ────────────────────────────────────────────────────────
 
+    /// Render a CSV with full custom filters (date range, category, role).
+    pub async fn generate_csv_filtered(
+        &self,
+        report_type: &str,
+        period: Option<&str>,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        category: Option<&str>,
+        role: Option<&str>,
+    ) -> AppResult<Vec<u8>> {
+        let mut wtr = csv::Writer::from_writer(Vec::new());
+        match report_type {
+            "fund" => {
+                wtr.write_record([
+                    "id", "type", "amount", "category", "description", "period", "recorded_by", "created_at",
+                ]).map_err(|e| AppError::Internal(e.to_string()))?;
+                let summary = self.get_fund_summary(period, date_from, date_to, category, role).await?;
+                for t in summary.transactions {
+                    wtr.write_record([
+                        t.id, t.r#type, format!("{:.2}", t.amount), t.category,
+                        t.description, t.budget_period, t.recorded_by, t.created_at,
+                    ]).map_err(|e| AppError::Internal(e.to_string()))?;
+                }
+            }
+            "members" => {
+                wtr.write_record(["snapshot_date", "total_members", "new_members", "churned_members"])
+                    .map_err(|e| AppError::Internal(e.to_string()))?;
+                let metrics = self.get_member_metrics().await?;
+                for s in metrics.series {
+                    wtr.write_record([
+                        s.snapshot_date, s.total_members.to_string(),
+                        s.new_members.to_string(), s.churned_members.to_string(),
+                    ]).map_err(|e| AppError::Internal(e.to_string()))?;
+                }
+            }
+            "events" => {
+                wtr.write_record(["event_name", "event_date", "participant_count", "category"])
+                    .map_err(|e| AppError::Internal(e.to_string()))?;
+                let summary = self.get_event_participation().await?;
+                for e in summary.events {
+                    wtr.write_record([
+                        e.event_name, e.event_date, e.participant_count.to_string(),
+                        e.category.unwrap_or_default(),
+                    ]).map_err(|e| AppError::Internal(e.to_string()))?;
+                }
+            }
+            other => return Err(AppError::Validation(format!("unknown report type: {other}"))),
+        }
+        wtr.into_inner().map_err(|e| AppError::Internal(e.to_string()))
+    }
+
     /// Render a CSV byte buffer for the requested report.
     pub async fn generate_csv(
         &self,
@@ -394,28 +445,45 @@ impl AnalyticsService {
     /// the public surface matches the SPEC: status flips from `pending` to
     /// `complete`, the file lands on disk, and a single-use `download_token`
     /// is issued.
+    /// Schedule a report for generation with optional custom filters.
+    /// Filters are stored in the `filters` JSON column and flowed through to
+    /// CSV/PDF generation so the output reflects the requested filter state.
+    #[allow(clippy::too_many_arguments)]
     pub async fn schedule_report(
         &self,
         report_type: &str,
         format: &str,
         period: Option<&str>,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        category: Option<&str>,
+        role: Option<&str>,
         actor_id: &str,
     ) -> AppResult<ScheduledReport> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
+        let filters_json = serde_json::json!({
+            "format": format,
+            "period": period,
+            "date_from": date_from,
+            "date_to": date_to,
+            "category": category,
+            "role": role,
+        })
+        .to_string();
         sqlx::query(
             "INSERT INTO scheduled_reports (id, report_type, filters, status, created_by, created_at) VALUES (?, ?, ?, 'pending', ?, ?)",
         )
         .bind(&id)
         .bind(report_type)
-        .bind(serde_json::json!({"format": format, "period": period}).to_string())
+        .bind(&filters_json)
         .bind(actor_id)
         .bind(&now)
         .execute(&self.db)
         .await?;
 
         let bytes = match format {
-            "csv" => self.generate_csv(report_type, period).await?,
+            "csv" => self.generate_csv_filtered(report_type, period, date_from, date_to, category, role).await?,
             "pdf" => self.generate_pdf(report_type, period).await?,
             other => return Err(AppError::Validation(format!("unknown format: {other}"))),
         };

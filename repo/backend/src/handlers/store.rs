@@ -39,7 +39,7 @@ pub async fn create_product(
             AuditAction::Create,
             "product",
             Some(&row.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&serde_json::to_string(&row)?)),
             None,
         )
@@ -68,7 +68,7 @@ pub async fn create_promotion(
             AuditAction::Create,
             "promotion",
             Some(&row.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&serde_json::to_string(&row)?)),
             None,
         )
@@ -82,15 +82,20 @@ pub async fn deactivate_promotion(
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
     let svc = StoreService::new(state.db.clone());
+    // Capture before-state for audit hash.
+    let before = svc.get_promotion(&id).await?;
+    let before_hash = AuditService::compute_hash(&serde_json::to_string(&before)?);
     svc.deactivate_promotion(&id).await?;
+    let after = svc.get_promotion(&id).await?;
+    let after_hash = AuditService::compute_hash(&serde_json::to_string(&after)?);
     AuditService::new(state.db.clone())
         .log(
             &user.id,
             AuditAction::Update,
             "promotion",
             Some(&id),
-            None,
-            Some(AuditService::compute_hash("deactivated")),
+            Some(before_hash),
+            Some(after_hash),
             None,
         )
         .await?;
@@ -121,7 +126,7 @@ pub async fn checkout(
             AuditAction::Checkout,
             "order",
             Some(&order.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&serde_json::to_string(&order)?)),
             None,
         )
@@ -135,8 +140,10 @@ pub async fn preview_checkout(
     Json(req): Json<CheckoutRequest>,
 ) -> AppResult<Json<CheckoutResult>> {
     let svc = StoreService::new(state.db.clone());
+    // Resolve server-side prices — same trust boundary as real checkout.
+    let server_cart = svc.resolve_cart_from_db(&req.items).await?;
     let promos = svc.list_promotions().await?;
-    Ok(Json(apply_best_promotion(&req.items, &promos)))
+    Ok(Json(apply_best_promotion(&server_cart, &promos)))
 }
 
 pub async fn list_orders(

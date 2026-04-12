@@ -322,6 +322,102 @@ async fn test_internal_errors_do_not_leak_raw_details() {
     let _ = csrf;
 }
 
+/// Finding B regression: refresh_csrf must write an audit record with before/after hashes.
+#[tokio::test]
+async fn test_refresh_csrf_writes_audit_record() {
+    let (app, state) = setup_test_app().await;
+    let (session, csrf) = login_as_admin(app.clone()).await;
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/auth/refresh-csrf")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Check that an audit row was created for the csrf_token rotation.
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT before_hash, after_hash FROM audit_logs WHERE entity_type = 'csrf_token' ORDER BY created_at DESC LIMIT 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .unwrap();
+    let (before, after) = row.expect("audit row for csrf_token must exist");
+    assert!(before.is_some(), "before_hash must be populated");
+    assert!(after.is_some(), "after_hash must be populated");
+    assert_ne!(before, after, "before and after hashes should differ after rotation");
+}
+
+/// Finding B regression: every mutating endpoint must write both before_hash and after_hash.
+#[tokio::test]
+async fn test_audit_hashes_always_populated() {
+    let (app, state) = setup_test_app().await;
+    let (session, csrf) = login_as_admin(app.clone()).await;
+
+    // Trigger a mutation — create a user.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/users")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({
+                "username":"audit-test-user",
+                "password":"Scholar2024!",
+                "role":"reviewer"
+            }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // ALL audit rows should have non-null before_hash and after_hash.
+    let nulls: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_logs WHERE before_hash IS NULL OR after_hash IS NULL",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(nulls, 0, "no audit rows should have NULL before_hash or after_hash");
+}
+
+/// Finding E regression: different usernames on same IP do not lock each other out.
+#[tokio::test]
+async fn test_lockout_does_not_cross_accounts_on_same_ip() {
+    let (app, _state) = setup_test_app().await;
+
+    // Fail 4 times for admin (just under lockout threshold).
+    for _ in 0..4 {
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/auth/login")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({"username":"admin","password":"wrong"}).to_string(),
+            ))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    // A different user (curator) on the same IP should NOT be locked out.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"username":"curator","password":"Scholar2024!"}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK,
+        "curator should NOT be locked out by admin's failures on the same IP");
+}
+
 async fn login_as_admin(app: axum::Router) -> (String, String) {
     let req = Request::builder()
         .method(Method::POST)

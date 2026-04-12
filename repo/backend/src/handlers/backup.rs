@@ -53,7 +53,7 @@ pub async fn run_backup(
             AuditAction::RunBackup,
             "backup",
             Some(&row.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&row.sha256_hash)),
             None,
         )
@@ -74,7 +74,7 @@ pub async fn restore_sandbox(
             AuditAction::RestoreSandbox,
             "backup",
             Some(&id),
-            None,
+            Some(AuditService::compute_hash(&id)),
             Some(AuditService::compute_hash(&format!(
                 "all_passed={}",
                 report.all_passed
@@ -98,8 +98,8 @@ pub async fn activate(
             AuditAction::ActivateRestore,
             "backup",
             Some(&id),
-            None,
-            None,
+            Some(AuditService::compute_hash(&id)),
+            Some(AuditService::compute_hash(&format!("activated={}", id))),
             None,
         )
         .await?;
@@ -118,7 +118,7 @@ pub async fn cleanup(
             AuditAction::LifecycleCleanup,
             "backup",
             None,
-            None,
+            Some(AuditService::compute_hash("pre_cleanup")),
             Some(AuditService::compute_hash(&format!(
                 "purged_d={} purged_m={}",
                 res.purged_daily, res.purged_monthly
@@ -162,6 +162,9 @@ pub async fn update_schedule(
     Json(req): Json<UpdateScheduleRequest>,
 ) -> AppResult<Json<BackupSchedule>> {
     let svc = build(&state);
+    // Capture before-state for audit before the mutation.
+    let before_schedule = svc.get_schedule().await?;
+    let before_hash = AuditService::compute_hash(&before_schedule.cron_expr);
     let updated = svc.update_schedule(&req.cron_expr, &user.id).await?;
     // Hot-reload the running scheduler so the new cron takes effect without a
     // full app restart. Failure to reload is logged but doesn't roll back the
@@ -181,7 +184,7 @@ pub async fn update_schedule(
             AuditAction::Update,
             "backup_schedule",
             Some(&updated.id),
-            None,
+            Some(before_hash),
             Some(AuditService::compute_hash(&updated.cron_expr)),
             None,
         )
@@ -195,6 +198,14 @@ pub async fn update_policy(
     Json(req): Json<UpdatePolicyRequest>,
 ) -> AppResult<Json<RetentionPolicy>> {
     let svc = build(&state);
+    let before_policy = svc.get_active_policy().await?;
+    let before_hash = AuditService::compute_hash(&format!(
+        "d={} m={} pf={} pi={}",
+        before_policy.daily_retention,
+        before_policy.monthly_retention,
+        before_policy.preserve_financial,
+        before_policy.preserve_ip
+    ));
     let updated = svc
         .update_policy(
             req.daily_retention,
@@ -210,7 +221,7 @@ pub async fn update_policy(
             AuditAction::Update,
             "retention_policy",
             Some(&updated.id),
-            None,
+            Some(before_hash),
             Some(AuditService::compute_hash(&format!(
                 "d={} m={} pf={} pi={}",
                 updated.daily_retention,

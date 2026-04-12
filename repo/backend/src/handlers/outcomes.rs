@@ -123,10 +123,10 @@ pub async fn add_contributor(
     AuditService::new(state.db.clone())
         .log(
             &user.id,
-            AuditAction::Update,
+            AuditAction::Create,
             "outcome_contributor",
             Some(&outcome_id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&serde_json::to_string(&row)?)),
             None,
         )
@@ -280,7 +280,7 @@ pub async fn upload_evidence(
             AuditAction::UploadEvidence,
             "evidence_file",
             Some(&row.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(&row.sha256_fingerprint)),
             None,
         )
