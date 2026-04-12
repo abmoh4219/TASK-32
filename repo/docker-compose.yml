@@ -31,8 +31,8 @@ services:
         required: false
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:///app/data/scholarvault.db}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      SIGNING_KEY: ${SIGNING_KEY}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-scholarvault-aes256-key-32bytes!!}
+      SIGNING_KEY: ${SIGNING_KEY:-scholarvault-jwt-signing-key-secret!}
       RUST_LOG: ${RUST_LOG:-info}
       HOST: 0.0.0.0
       PORT: 3000

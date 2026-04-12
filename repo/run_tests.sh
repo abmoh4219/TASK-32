@@ -8,10 +8,9 @@ echo "========================================"
 if command -v cargo > /dev/null 2>&1; then
   CARGO="cargo"
 else
-  echo "ERROR: cargo not found."
-  echo "Run via Docker: docker compose --profile test run --build test"
-  echo "Or install Rust toolchain: https://rustup.rs"
-  exit 1
+  # No Rust toolchain on this host — delegate to the Docker test container.
+  echo "cargo not found on host — running tests via Docker..."
+  exec docker compose --profile test run --build test
 fi
 
 export SQLX_OFFLINE=true
