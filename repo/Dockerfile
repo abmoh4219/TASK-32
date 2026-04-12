@@ -19,8 +19,14 @@ ENV CARGO_HTTP_LOW_SPEED_LIMIT=0
 ENV CARGO_HTTP_MULTIPLEXING=false
 
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install --locked trunk --version 0.20.3
-RUN cargo install --locked wasm-bindgen-cli --version 0.2.95 || true
+
+# Limit parallelism to 1 job during `cargo install` to avoid OOM kills in
+# low-memory CI environments (the minify-html-common crate in trunk's dep
+# tree is particularly heavy).  Sparse registry protocol also reduces peak
+# memory by avoiding a full git clone of the crates.io index.
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+RUN CARGO_BUILD_JOBS=1 cargo install --locked trunk --version 0.20.3 --jobs 1
+RUN CARGO_BUILD_JOBS=1 cargo install --locked wasm-bindgen-cli --version 0.2.95 --jobs 1 || true
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
