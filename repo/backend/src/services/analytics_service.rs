@@ -350,6 +350,64 @@ impl AnalyticsService {
             .map_err(|e| AppError::Internal(e.to_string()))
     }
 
+    /// Render a PDF with full custom filters (date range, category, role).
+    /// Same filtered dataset semantics as `generate_csv_filtered`.
+    pub async fn generate_pdf_filtered(
+        &self,
+        report_type: &str,
+        period: Option<&str>,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        category: Option<&str>,
+        role: Option<&str>,
+    ) -> AppResult<Vec<u8>> {
+        let title = format!("ScholarVault — {} report", report_type);
+        let generated_at = format!("Generated {}", Utc::now().to_rfc3339());
+        let lines: Vec<String> = match report_type {
+            "fund" => {
+                let summary = self.get_fund_summary(period, date_from, date_to, category, role).await?;
+                let mut v = vec![
+                    format!("Total income:  ${:.2}", summary.total_income),
+                    format!("Total expense: ${:.2}", summary.total_expense),
+                    format!("Net:           ${:.2}", summary.net),
+                    format!(
+                        "Budget cap:    ${:.2} ({})",
+                        summary.budget_cap,
+                        if summary.over_budget { "OVER" } else { "ok" }
+                    ),
+                    String::new(),
+                    "Transactions:".into(),
+                ];
+                for t in summary.transactions.iter().take(20) {
+                    v.push(format!(
+                        "  {} ${:.2} {} - {}",
+                        t.r#type, t.amount, t.category, t.description
+                    ));
+                }
+                v
+            }
+            "members" => {
+                let m = self.get_member_metrics().await?;
+                let mut v = vec![
+                    format!("Current members: {}", m.current_total),
+                    format!("New (window):    {}", m.new_members),
+                    format!("Churned:         {}", m.churned),
+                    String::new(),
+                    "Snapshots:".into(),
+                ];
+                for s in m.series.iter().take(12) {
+                    v.push(format!(
+                        "  {}: total={} new={} churned={}",
+                        s.snapshot_date, s.total_members, s.new_members, s.churned_members
+                    ));
+                }
+                v
+            }
+            other => return Err(AppError::Validation(format!("unknown report type: {other}"))),
+        };
+        Self::render_pdf(&title, &generated_at, &lines)
+    }
+
     /// Render a real PDF via the `printpdf` crate.
     ///
     /// All async data fetching happens **before** the `PdfDocument` is created.
@@ -484,7 +542,7 @@ impl AnalyticsService {
 
         let bytes = match format {
             "csv" => self.generate_csv_filtered(report_type, period, date_from, date_to, category, role).await?,
-            "pdf" => self.generate_pdf(report_type, period).await?,
+            "pdf" => self.generate_pdf_filtered(report_type, period, date_from, date_to, category, role).await?,
             other => return Err(AppError::Validation(format!("unknown format: {other}"))),
         };
         std::fs::create_dir_all(&self.reports_dir).ok();

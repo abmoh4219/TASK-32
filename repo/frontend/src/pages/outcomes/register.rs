@@ -35,8 +35,10 @@ pub fn RegisterOutcome() -> impl IntoView {
     // (filename, file_size_bytes) — simple tuple so the signal type compiles
     // on both WASM and native targets (the actual upload only runs in-browser).
     let (evidence_files, set_evidence_files) = create_signal::<Vec<(String, i64)>>(Vec::new());
-    // Duplicate-gating: user must acknowledge/compare duplicates before submit.
+    // Duplicate-gating: user must compare all duplicates AND acknowledge before submit.
     let (dup_acknowledged, set_dup_acknowledged) = create_signal(false);
+    // Track which duplicate IDs have been compared (must cover all surfaced candidates).
+    let (compared_ids, set_compared_ids) = create_signal::<std::collections::HashSet<String>>(std::collections::HashSet::new());
     // Inline compare result — shown when user clicks "Compare" on a duplicate.
     let (inline_compare, set_inline_compare) = create_signal::<Option<CompareResult>>(None);
 
@@ -156,17 +158,29 @@ pub fn RegisterOutcome() -> impl IntoView {
                                         {dups.into_iter().take(5).map(|d| {
                                             let cur = current_id.clone();
                                             let dup_id = d.id.clone();
+                                            let dup_id_for_badge = d.id.clone();
                                             view! {
                                                 <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#A0A0B0;padding:4px 0;">
-                                                    <span>{format!("• {} ({}, score {:.2})", d.title, d.reason, d.similarity_score)}</span>
+                                                    <span>
+                                                        {move || {
+                                                            let done = compared_ids.get().contains(&dup_id_for_badge);
+                                                            if done { "✓ " } else { "• " }
+                                                        }}
+                                                        {format!("{} ({}, score {:.2})", d.title, d.reason, d.similarity_score)}
+                                                    </span>
                                                     <button
                                                         class="sv-btn-secondary" style="font-size:10px;padding:3px 8px;"
                                                         on:click=move |_| {
                                                             let a = cur.clone();
                                                             let b = dup_id.clone();
+                                                            let b_for_mark = b.clone();
                                                             spawn_local(async move {
                                                                 match out_api::compare_outcomes(&a, &b).await {
-                                                                    Ok(r) => set_inline_compare.set(Some(r)),
+                                                                    Ok(r) => {
+                                                                        set_inline_compare.set(Some(r));
+                                                                        // Mark this duplicate as compared.
+                                                                        set_compared_ids.update(|s| { s.insert(b_for_mark); });
+                                                                    }
                                                                     Err(e) => set_status.set(Some(format!("Compare error: {}", e.message))),
                                                                 }
                                                             });
@@ -335,7 +349,19 @@ pub fn RegisterOutcome() -> impl IntoView {
                         <div style="display:flex;gap:8px;margin-top:24px;">
                             <button class="sv-btn-secondary" on:click=move |_| set_step.set(Step::Details)>"← Back"</button>
                             {move || {
-                                let enabled = dup_acknowledged.get();
+                                let ack = dup_acknowledged.get();
+                                let dups = duplicates.get();
+                                let reviewed = compared_ids.get();
+                                // All surfaced duplicates must be compared AND acknowledged.
+                                let all_compared = dups.is_empty() || dups.iter().take(5).all(|d| reviewed.contains(&d.id));
+                                let enabled = ack && all_compared;
+                                let label = if !all_compared {
+                                    "Compare all duplicates first"
+                                } else if !ack {
+                                    "Acknowledge duplicates first"
+                                } else {
+                                    "Submit for review"
+                                };
                                 view! {
                                     <button
                                         class="sv-btn-primary"
@@ -343,7 +369,7 @@ pub fn RegisterOutcome() -> impl IntoView {
                                         style=move || if enabled { "" } else { "opacity:0.5;cursor:not-allowed;" }
                                         on:click=submit_action
                                     >
-                                        {if enabled { "Submit for review" } else { "Acknowledge duplicates first" }}
+                                        {label}
                                     </button>
                                 }
                             }}

@@ -510,9 +510,21 @@ impl KnowledgeService {
 
         for chunk in deduped.chunks(200) {
             let placeholders = vec!["?"; chunk.len()].join(",");
-            // Each UPDATE that touches rows means those ids were changed.
-            // We collect them into a set so the final count is accurate.
             let chunk_ids: Vec<&str> = chunk.iter().map(|s| s.as_str()).collect();
+
+            // Prefetch which IDs in this chunk actually exist in the DB so we
+            // only count truly updated rows, not the full chunk.
+            let exist_q = format!(
+                "SELECT id FROM knowledge_points WHERE id IN ({})",
+                placeholders
+            );
+            let mut exist_query = sqlx::query_scalar::<_, String>(&exist_q);
+            for id in &chunk_ids {
+                exist_query = exist_query.bind(*id);
+            }
+            let existing: std::collections::HashSet<String> =
+                exist_query.fetch_all(&mut *tx).await?.into_iter().collect();
+
             if let Some(category_id) = &changes.category_id {
                 let q = format!(
                     "UPDATE knowledge_points SET category_id = ?, updated_at = ? WHERE id IN ({})",
@@ -524,7 +536,7 @@ impl KnowledgeService {
                 }
                 let res = query.execute(&mut *tx).await?;
                 if res.rows_affected() > 0 {
-                    touched_ids.extend(chunk_ids.iter().map(|s| s.to_string()));
+                    touched_ids.extend(existing.iter().cloned());
                 }
             }
             if let Some(diff) = changes.difficulty {
@@ -541,7 +553,7 @@ impl KnowledgeService {
                 }
                 let res = query.execute(&mut *tx).await?;
                 if res.rows_affected() > 0 {
-                    touched_ids.extend(chunk_ids.iter().map(|s| s.to_string()));
+                    touched_ids.extend(existing.iter().cloned());
                 }
             }
             if let Some(disc) = changes.discrimination {
@@ -555,7 +567,7 @@ impl KnowledgeService {
                 }
                 let res = query.execute(&mut *tx).await?;
                 if res.rows_affected() > 0 {
-                    touched_ids.extend(chunk_ids.iter().map(|s| s.to_string()));
+                    touched_ids.extend(existing.iter().cloned());
                 }
             }
         }

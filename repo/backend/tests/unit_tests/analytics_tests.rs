@@ -145,6 +145,68 @@ async fn test_download_token_single_use_clears() {
     assert!(matches!(err, backend::AppError::NotFound));
 }
 
+/// Finding A: scheduled PDF with category filter uses filtered dataset.
+#[tokio::test]
+async fn test_pdf_filtered_applies_category() {
+    let pool = fresh_db().await;
+    let tmp = std::env::temp_dir().join(format!("sv-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let s = AnalyticsService::new(pool, tmp);
+    // Schedule a PDF filtered to category=grants — should still produce valid PDF.
+    let row = s
+        .schedule_report("fund", "pdf", None, None, None, Some("grants"), None, "u-finance")
+        .await
+        .unwrap();
+    assert_eq!(row.status, "complete");
+    // Verify the file on disk is a real PDF.
+    let path = row.file_path.as_deref().unwrap();
+    let bytes = std::fs::read(path).unwrap();
+    assert!(bytes.starts_with(b"%PDF"), "filtered PDF must be valid");
+}
+
+/// Finding A: CSV and PDF with same filters produce consistent record selection.
+#[tokio::test]
+async fn test_csv_and_pdf_filtered_consistency() {
+    let pool = fresh_db().await;
+    let tmp = std::env::temp_dir().join(format!("sv-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let s = AnalyticsService::new(pool, tmp.clone());
+    // Both should succeed with same filters.
+    let csv_row = s
+        .schedule_report("fund", "csv", None, None, None, Some("grants"), None, "u-finance")
+        .await
+        .unwrap();
+    let pdf_row = s
+        .schedule_report("fund", "pdf", None, None, None, Some("grants"), None, "u-finance")
+        .await
+        .unwrap();
+    assert_eq!(csv_row.status, "complete");
+    assert_eq!(pdf_row.status, "complete");
+    // CSV content should only have grants rows.
+    let csv_bytes = std::fs::read(csv_row.file_path.as_deref().unwrap()).unwrap();
+    let csv_text = String::from_utf8(csv_bytes).unwrap();
+    // Skip header row, check all data rows contain "grants".
+    for line in csv_text.lines().skip(1) {
+        assert!(line.contains("grants"), "CSV row should be grants-only: {}", line);
+    }
+}
+
+/// Finding A: old period-only PDF still works when advanced filters absent.
+#[tokio::test]
+async fn test_pdf_period_only_backward_compat() {
+    let pool = fresh_db().await;
+    let tmp = std::env::temp_dir().join(format!("sv-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let s = AnalyticsService::new(pool, tmp);
+    let row = s
+        .schedule_report("fund", "pdf", Some("2026-04"), None, None, None, None, "u-finance")
+        .await
+        .unwrap();
+    assert_eq!(row.status, "complete");
+    let bytes = std::fs::read(row.file_path.as_deref().unwrap()).unwrap();
+    assert!(bytes.starts_with(b"%PDF"));
+}
+
 #[tokio::test]
 async fn test_download_report_rejects_other_user() {
     let pool = fresh_db().await;

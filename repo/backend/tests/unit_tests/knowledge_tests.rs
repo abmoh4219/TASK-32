@@ -125,6 +125,87 @@ async fn test_bulk_update_exactly_1000_succeeds() {
     assert_eq!(result, 0); // no rows match the synthetic ids
 }
 
+/// Finding C: mixed-validity chunk — only truly existing IDs are counted.
+#[tokio::test]
+async fn test_bulk_update_mixed_validity_counts_only_existing() {
+    let pool = fresh_db().await;
+    let svc = KnowledgeService::new(pool.clone());
+    // kp-001 exists (seeded), "kp-fake-999" does not.
+    let ids = vec!["kp-001".to_string(), "kp-fake-999".to_string()];
+    let count = svc
+        .bulk_update(
+            &ids,
+            &BulkUpdate {
+                difficulty: Some(5),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "only kp-001 exists and should be counted");
+}
+
+/// Finding C: duplicate IDs across the input do not inflate count.
+#[tokio::test]
+async fn test_bulk_update_deduplicates_ids() {
+    let pool = fresh_db().await;
+    let svc = KnowledgeService::new(pool.clone());
+    // Send kp-001 three times.
+    let ids = vec!["kp-001".to_string(), "kp-001".to_string(), "kp-001".to_string()];
+    let count = svc
+        .bulk_update(
+            &ids,
+            &BulkUpdate {
+                difficulty: Some(4),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "same ID repeated should count as 1");
+}
+
+/// Finding C: multiple update fields still dedupe correctly.
+#[tokio::test]
+async fn test_bulk_update_multiple_fields_dedupes() {
+    let pool = fresh_db().await;
+    let svc = KnowledgeService::new(pool.clone());
+    // Update both difficulty and discrimination for kp-001 and kp-002.
+    let ids = vec!["kp-001".to_string(), "kp-002".to_string()];
+    let count = svc
+        .bulk_update(
+            &ids,
+            &BulkUpdate {
+                difficulty: Some(3),
+                discrimination: Some(0.5),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(count, 2, "both kp-001 and kp-002 exist and should be counted");
+}
+
+/// Finding C: previous happy-path bulk update behavior remains intact.
+#[tokio::test]
+async fn test_bulk_update_all_existing_ids_counted() {
+    let pool = fresh_db().await;
+    let svc = KnowledgeService::new(pool.clone());
+    // All three seeded kps exist.
+    let ids = vec!["kp-001".to_string(), "kp-002".to_string(), "kp-003".to_string()];
+    let count = svc
+        .bulk_update(
+            &ids,
+            &BulkUpdate {
+                difficulty: Some(2),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(count, 3, "all 3 seeded knowledge points should be counted");
+}
+
 #[tokio::test]
 async fn test_create_category_then_kp_then_merge_flow() {
     let pool = fresh_db().await;
