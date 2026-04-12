@@ -10,7 +10,55 @@ use crate::api::backup as backup_api;
 pub fn BackupTab() -> impl IntoView {
     let history = create_resource(|| (), |_| async move { backup_api::list_history().await });
     let policy = create_resource(|| (), |_| async move { backup_api::get_policy().await });
+    let schedule = create_resource(|| (), |_| async move { backup_api::get_schedule().await });
     let (status, set_status) = create_signal::<Option<String>>(None);
+    let (cron_draft, set_cron_draft) = create_signal(String::new());
+    let (daily_draft, set_daily_draft) = create_signal(30i64);
+    let (monthly_draft, set_monthly_draft) = create_signal(12i64);
+    let (pf_draft, set_pf_draft) = create_signal(true);
+    let (pi_draft, set_pi_draft) = create_signal(true);
+
+    let save_schedule = move |_| {
+        let expr = cron_draft.get();
+        if expr.trim().is_empty() {
+            set_status.set(Some("Cron expression is required".into()));
+            return;
+        }
+        let schedule_res = schedule;
+        spawn_local(async move {
+            match backup_api::update_schedule(backup_api::UpdateScheduleRequest {
+                cron_expr: expr,
+            })
+            .await
+            {
+                Ok(_) => {
+                    set_status.set(Some("Schedule updated".into()));
+                    schedule_res.refetch();
+                }
+                Err(e) => set_status.set(Some(format!("Error: {}", e.message))),
+            }
+        });
+    };
+
+    let save_policy = move |_| {
+        let policy_res = policy;
+        spawn_local(async move {
+            match backup_api::update_policy(backup_api::UpdatePolicyRequest {
+                daily_retention: daily_draft.get(),
+                monthly_retention: monthly_draft.get(),
+                preserve_financial: pf_draft.get(),
+                preserve_ip: pi_draft.get(),
+            })
+            .await
+            {
+                Ok(_) => {
+                    set_status.set(Some("Retention policy updated".into()));
+                    policy_res.refetch();
+                }
+                Err(e) => set_status.set(Some(format!("Error: {}", e.message))),
+            }
+        });
+    };
     let (validation, set_validation) =
         create_signal::<Option<backup_api::SandboxValidationReport>>(None);
     let (validating_id, set_validating_id) = create_signal::<Option<String>>(None);
@@ -130,6 +178,52 @@ pub fn BackupTab() -> impl IntoView {
                             Err(e) => view! { <div class="sv-error">{e.message}</div> }.into_view(),
                         })}
                     </Suspense>
+                    <div style="margin-top:14px;border-top:1px solid rgba(245,197,24,0.10);padding-top:12px;">
+                        <label class="sv-label">"Daily"</label>
+                        <input class="sv-input" type="number" min="1" max="3650"
+                            prop:value=move || daily_draft.get().to_string()
+                            on:input=move |ev| set_daily_draft.set(event_target_value(&ev).parse().unwrap_or(30))/>
+                        <label class="sv-label" style="margin-top:8px;">"Monthly"</label>
+                        <input class="sv-input" type="number" min="1" max="120"
+                            prop:value=move || monthly_draft.get().to_string()
+                            on:input=move |ev| set_monthly_draft.set(event_target_value(&ev).parse().unwrap_or(12))/>
+                        <label style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:11px;">
+                            <input type="checkbox"
+                                prop:checked=move || pf_draft.get()
+                                on:change=move |ev| set_pf_draft.set(event_target_checked(&ev))/>
+                            "Preserve financial"
+                        </label>
+                        <label style="display:flex;gap:6px;align-items:center;margin-top:4px;font-size:11px;">
+                            <input type="checkbox"
+                                prop:checked=move || pi_draft.get()
+                                on:change=move |ev| set_pi_draft.set(event_target_checked(&ev))/>
+                            "Preserve IP"
+                        </label>
+                        <button class="sv-btn-primary" style="margin-top:10px;width:100%;" on:click=save_policy>
+                            "Save Policy"
+                        </button>
+                    </div>
+                </div>
+
+                <div class="sv-card">
+                    <h3 style="margin:0 0 12px;font-size:14px;color:#F5C518;">"Backup Schedule (cron)"</h3>
+                    <Suspense fallback=|| view! { <div class="sv-skeleton" style="height:60px;"></div> }>
+                        {move || schedule.get().map(|res| match res {
+                            Ok(s) => view! {
+                                <div style="font-size:12px;color:#A0A0B0;margin-bottom:8px;">
+                                    {format!("Current: {}", s.cron_expr)}
+                                </div>
+                            }.into_view(),
+                            Err(e) => view! { <div class="sv-error">{e.message}</div> }.into_view(),
+                        })}
+                    </Suspense>
+                    <label class="sv-label">"New cron (5-7 fields)"</label>
+                    <input class="sv-input" placeholder="0 0 2 * * *"
+                        prop:value=move || cron_draft.get()
+                        on:input=move |ev| set_cron_draft.set(event_target_value(&ev))/>
+                    <button class="sv-btn-primary" style="margin-top:10px;width:100%;" on:click=save_schedule>
+                        "Save Schedule"
+                    </button>
                 </div>
 
                 {move || validation.get().map(|r| {

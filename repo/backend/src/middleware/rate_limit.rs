@@ -6,12 +6,13 @@
 //! minute** as required by SPEC.md, and a 429 response includes a `Retry-After`
 //! header so callers can back off cleanly.
 
+use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use axum::{
     body::Body,
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::{HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -57,22 +58,72 @@ impl Default for RateLimitState {
     }
 }
 
-/// Axum middleware: 60 requests per minute keyed by user_id (falls back to IP).
+/// Returns true when the deployment has explicitly opted in to trusting
+/// `X-Forwarded-For` (i.e. sits behind a known proxy). Without this signal the
+/// middleware ignores caller-controlled headers and keys off the socket peer
+/// to prevent simple header-spoofing abuse of the rate limiter.
+pub fn trusted_proxy_headers() -> bool {
+    std::env::var("TRUSTED_PROXY_HEADERS")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::trusted_proxy_headers;
+
+    #[test]
+    fn trusted_proxy_defaults_off() {
+        std::env::remove_var("TRUSTED_PROXY_HEADERS");
+        assert!(!trusted_proxy_headers());
+    }
+
+    #[test]
+    fn trusted_proxy_opt_in_values() {
+        for v in ["1", "true", "yes", "on", "TRUE"] {
+            std::env::set_var("TRUSTED_PROXY_HEADERS", v);
+            assert!(trusted_proxy_headers(), "expected opt-in for {}", v);
+        }
+        std::env::set_var("TRUSTED_PROXY_HEADERS", "no");
+        assert!(!trusted_proxy_headers());
+        std::env::remove_var("TRUSTED_PROXY_HEADERS");
+    }
+}
+
+/// Axum middleware: 60 requests per minute keyed by user_id (falls back to
+/// socket peer IP). `X-Forwarded-For` is only honoured when
+/// `TRUSTED_PROXY_HEADERS=true` so untrusted callers can't spoof the key.
 /// On overflow returns HTTP 429 with `Retry-After: 60`.
 pub async fn rate_limit_middleware(
     State(state): State<AppState>,
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    // Choose the limiter key: user id when authenticated, else client IP, else 'anon'.
+    // Choose the limiter key: authenticated user id → forwarded header (only
+    // when explicitly trusted) → socket peer address → "anon".
     let key = if let Some(CurrentUser(user)) = req.extensions().get::<CurrentUser>() {
         format!("user:{}", user.id)
-    } else if let Some(ip) = req
-        .headers()
-        .get("X-Forwarded-For")
-        .and_then(|v| v.to_str().ok())
+    } else if trusted_proxy_headers() {
+        if let Some(ip) = req
+            .headers()
+            .get("X-Forwarded-For")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.split(',').next())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        {
+            format!("ip:{}", ip)
+        } else if let Some(ConnectInfo(addr)) =
+            req.extensions().get::<ConnectInfo<SocketAddr>>()
+        {
+            format!("peer:{}", addr.ip())
+        } else {
+            "anon".to_string()
+        }
+    } else if let Some(ConnectInfo(addr)) =
+        req.extensions().get::<ConnectInfo<SocketAddr>>()
     {
-        format!("ip:{}", ip)
+        format!("peer:{}", addr.ip())
     } else {
         "anon".to_string()
     };

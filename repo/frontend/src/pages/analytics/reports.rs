@@ -12,12 +12,14 @@ pub fn ReportsTab() -> impl IntoView {
     let (status, set_status) = create_signal::<Option<String>>(None);
     let (report_type, set_report_type) = create_signal("fund".to_string());
     let (format_kind, set_format_kind) = create_signal("csv".to_string());
+    let (period, set_period) = create_signal(String::new());
 
     let schedule = move |_| {
+        let p = period.get();
         let req = an_api::ScheduleReportRequest {
             report_type: report_type.get(),
             format: format_kind.get(),
-            period: None,
+            period: if p.is_empty() { None } else { Some(p) },
         };
         spawn_local(async move {
             match an_api::schedule_report(req).await {
@@ -87,9 +89,64 @@ pub fn ReportsTab() -> impl IntoView {
                     <option value="csv">"CSV"</option>
                     <option value="pdf">"PDF"</option>
                 </select>
+                <label class="sv-label" style="margin-top:10px;">"Period (optional, YYYY-MM)"</label>
+                <input
+                    class="sv-input"
+                    placeholder="2026-04"
+                    prop:value=move || period.get()
+                    on:input=move |ev| set_period.set(event_target_value(&ev))
+                />
                 <button class="sv-btn-primary" style="margin-top:14px;width:100%;" on:click=schedule>
                     "Generate Report"
                 </button>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
+                    <button
+                        class="sv-btn-secondary"
+                        style="text-align:center;font-size:11px;padding:8px;"
+                        on:click=move |_| {
+                            let p = period.get();
+                            let req = an_api::ScheduleReportRequest {
+                                report_type: report_type.get(),
+                                format: "csv".into(),
+                                period: if p.is_empty() { None } else { Some(p) },
+                            };
+                            spawn_local(async move {
+                                match an_api::schedule_report(req).await {
+                                    Ok(_) => {
+                                        set_status.set(Some("CSV export queued — refresh to download".into()));
+                                        reports.refetch();
+                                    }
+                                    Err(e) => set_status.set(Some(format!("Error: {}", e.message))),
+                                }
+                            });
+                        }
+                    >
+                        "Export CSV"
+                    </button>
+                    <button
+                        class="sv-btn-secondary"
+                        style="text-align:center;font-size:11px;padding:8px;"
+                        on:click=move |_| {
+                            let p = period.get();
+                            let req = an_api::ScheduleReportRequest {
+                                report_type: report_type.get(),
+                                format: "pdf".into(),
+                                period: if p.is_empty() { None } else { Some(p) },
+                            };
+                            spawn_local(async move {
+                                match an_api::schedule_report(req).await {
+                                    Ok(_) => {
+                                        set_status.set(Some("PDF export queued — refresh to download".into()));
+                                        reports.refetch();
+                                    }
+                                    Err(e) => set_status.set(Some(format!("Error: {}", e.message))),
+                                }
+                            });
+                        }
+                    >
+                        "Export PDF"
+                    </button>
+                </div>
                 {move || status.get().map(|s| view! {
                     <div style="margin-top:10px;font-size:11px;color:#A0A0B0;">{s}</div>
                 })}

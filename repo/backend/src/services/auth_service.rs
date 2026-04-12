@@ -157,6 +157,10 @@ impl AuthService {
     }
 
     /// Create a new user. Hashes the password with Argon2id before storing.
+    /// Sensitive PII (`phone`, `national_id`) — when provided — is encrypted
+    /// with AES-256-GCM via `security::encryption::encrypt_field` BEFORE it
+    /// ever reaches SQLite, so the raw database row only ever holds ciphertext.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_user(
         &self,
         username: &str,
@@ -164,6 +168,9 @@ impl AuthService {
         role: &str,
         full_name: Option<&str>,
         email: Option<&str>,
+        phone: Option<&str>,
+        national_id: Option<&str>,
+        encryption_key: &[u8; 32],
     ) -> AppResult<User> {
         if username.trim().is_empty() || password_plain.is_empty() {
             return Err(AppError::Validation("username + password required".into()));
@@ -174,8 +181,22 @@ impl AuthService {
         let id = format!("u-{}", Uuid::new_v4());
         let now = Utc::now().to_rfc3339();
         let hash = password::hash_password(password_plain)?;
+        let phone_ct = match phone {
+            Some(p) if !p.is_empty() => Some(crate::security::encryption::encrypt_field(
+                p,
+                encryption_key,
+            )?),
+            _ => None,
+        };
+        let national_id_ct = match national_id {
+            Some(n) if !n.is_empty() => Some(crate::security::encryption::encrypt_field(
+                n,
+                encryption_key,
+            )?),
+            _ => None,
+        };
         sqlx::query(
-            "INSERT INTO users (id, username, password_hash, role, is_active, full_name, email, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)",
+            "INSERT INTO users (id, username, password_hash, role, is_active, full_name, email, phone_encrypted, national_id_encrypted, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(username)
@@ -183,6 +204,8 @@ impl AuthService {
         .bind(role)
         .bind(full_name)
         .bind(email)
+        .bind(phone_ct.as_deref())
+        .bind(national_id_ct.as_deref())
         .bind(&now)
         .bind(&now)
         .execute(&self.db)

@@ -26,6 +26,7 @@ pub async fn setup_test_app() -> (axum::Router, AppState) {
         backup_dir: Arc::new(tmp_root.join("backups")),
         reports_dir: Arc::new(tmp_root.join("reports")),
         invalid_search_tracker: backend::services::abuse::InvalidSearchTracker::new(),
+        scheduler_handle: Arc::new(tokio::sync::Mutex::new(None)),
     };
     let app = build_router(state.clone());
     (app, state)

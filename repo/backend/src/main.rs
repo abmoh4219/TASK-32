@@ -49,6 +49,12 @@ async fn main() -> AppResult<()> {
 
     db::run_migrations(&pool, &migrations_dir).await?;
 
+    // In non-dev environments, disable seeded demo accounts so production
+    // deployments never run with known credentials. The seed migration uses
+    // INSERT OR IGNORE so the rows only exist on a fresh database, but an
+    // operator who forgot to create real users would otherwise be exposed.
+    disable_seed_users_in_production(&pool).await;
+
     let evidence_dir = std::path::PathBuf::from(
         std::env::var("EVIDENCE_DIR").unwrap_or_else(|_| "/app/evidence".to_string()),
     );
@@ -62,6 +68,9 @@ async fn main() -> AppResult<()> {
     let _ = std::fs::create_dir_all(&backup_dir);
     let _ = std::fs::create_dir_all(&reports_dir);
 
+    let scheduler_handle: backend::services::backup_scheduler::SchedulerHandle =
+        std::sync::Arc::new(tokio::sync::Mutex::new(None));
+
     let state = AppState {
         db: pool,
         encryption_key: Arc::new(derive_key(&encryption_key_material)),
@@ -71,9 +80,12 @@ async fn main() -> AppResult<()> {
         backup_dir: Arc::new(backup_dir),
         reports_dir: Arc::new(reports_dir),
         invalid_search_tracker: backend::services::abuse::InvalidSearchTracker::new(),
+        scheduler_handle: scheduler_handle.clone(),
     };
 
-    // Start the backup scheduler so the SPEC default 02:00 daily job is wired.
+    // Start the backup scheduler. Cron expression is read from the DB-backed
+    // admin schedule so operators can update it via the API; if the row is
+    // missing (fresh DB) we fall back to the SPEC default 02:00 daily.
     let backup_service = Arc::new(BackupService::new(
         state.db.clone(),
         match database_url.strip_prefix("sqlite://") {
@@ -84,12 +96,17 @@ async fn main() -> AppResult<()> {
         (*state.backup_dir).clone(),
         *state.encryption_key,
     ));
-    let cron_expr = std::env::var("BACKUP_SCHEDULE").unwrap_or_else(|_| "0 0 2 * * *".to_string());
-    let _scheduler_handle = match start_backup_scheduler(backup_service, &cron_expr).await {
-        Ok(s) => Some(s),
+    let cron_expr = match backup_service.get_schedule().await {
+        Ok(s) => s.cron_expr,
+        Err(_) => std::env::var("BACKUP_SCHEDULE")
+            .unwrap_or_else(|_| "0 0 2 * * *".to_string()),
+    };
+    match start_backup_scheduler(backup_service.clone(), &cron_expr).await {
+        Ok(s) => {
+            *scheduler_handle.lock().await = Some(s);
+        }
         Err(e) => {
             tracing::warn!(error = ?e, "backup scheduler failed to start (continuing without)");
-            None
         }
     };
 
@@ -147,6 +164,32 @@ fn require_secret(var_name: &str) -> AppResult<String> {
         )));
     }
     Ok(value)
+}
+
+/// In non-dev environments, deactivate the five demo seed accounts so the app
+/// cannot be accessed with the known default credentials published in the
+/// README. Dev/test/local modes keep them active for QA workflows.
+async fn disable_seed_users_in_production(pool: &sqlx::SqlitePool) {
+    let app_env = std::env::var("APP_ENV").unwrap_or_default().to_ascii_lowercase();
+    let is_dev = matches!(
+        app_env.as_str(),
+        "dev" | "development" | "local" | "test" | ""
+    );
+    if is_dev {
+        return;
+    }
+    let seed_ids = ["u-admin", "u-curator", "u-reviewer", "u-finance", "u-store"];
+    for id in seed_ids {
+        let result = sqlx::query("UPDATE users SET is_active = 0 WHERE id = ? AND is_active = 1")
+            .bind(id)
+            .execute(pool)
+            .await;
+        if let Ok(r) = result {
+            if r.rows_affected() > 0 {
+                tracing::warn!(user_id = %id, "disabled seed demo account in production mode");
+            }
+        }
+    }
 }
 
 /// Refuse to boot in production-like deployments unless transport security is

@@ -20,6 +20,7 @@ use sqlx::SqlitePool;
 
 use crate::middleware::rate_limit::RateLimitState;
 use crate::services::abuse::InvalidSearchTracker;
+use crate::services::backup_scheduler::SchedulerHandle;
 
 /// Shared application state passed into every Axum handler via the `State` extractor.
 #[derive(Clone)]
@@ -32,6 +33,9 @@ pub struct AppState {
     pub backup_dir: Arc<std::path::PathBuf>,
     pub reports_dir: Arc<std::path::PathBuf>,
     pub invalid_search_tracker: InvalidSearchTracker,
+    /// Running backup scheduler — held here so the admin update-schedule
+    /// handler can hot-reload it with a new cron expression.
+    pub scheduler_handle: SchedulerHandle,
 }
 
 /// Derive a 32-byte AES-256 key from an arbitrary-length string by truncating or

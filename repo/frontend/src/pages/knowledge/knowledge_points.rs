@@ -152,6 +152,33 @@ pub fn KnowledgePointsTab() -> impl IntoView {
                     {band_btn("Excellent", DiscriminationBandPreset::Excellent, set_filter)}
                 </div>
 
+                <label class="sv-label" style="margin-top:14px;">"Chapter"</label>
+                <input
+                    class="sv-input"
+                    placeholder="e.g. ch-3"
+                    on:input=move |ev| {
+                        let v = event_target_value(&ev);
+                        set_filter.update(|f| {
+                            f.chapter = if v.is_empty() { None } else { Some(v) };
+                        });
+                    }
+                />
+
+                <label class="sv-label" style="margin-top:14px;">"Tags (comma-separated)"</label>
+                <input
+                    class="sv-input"
+                    placeholder="matrix, algebra"
+                    on:input=move |ev| {
+                        let raw = event_target_value(&ev);
+                        let tags: Vec<String> = raw
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        set_filter.update(|f| f.tags = tags);
+                    }
+                />
+
                 <button
                     class="sv-btn-ghost"
                     style="margin-top:18px;width:100%;"

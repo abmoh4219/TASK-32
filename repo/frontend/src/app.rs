@@ -34,19 +34,35 @@ pub fn App() -> impl IntoView {
 
 #[component]
 fn PlaceholderDashboard(#[prop(optional)] label: String) -> impl IntoView {
-    let role_text = if label.is_empty() { "Authenticated".to_string() } else { label };
+    let _label = label; // consumed
     view! {
-        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;">
-            <div class="sv-card" style="text-align:center;padding:40px;max-width:520px;">
-                <h1 class="sv-text-gradient" style="font-size:28px;margin:0 0 12px;">
-                    "ScholarVault"
-                </h1>
-                <p style="color:#A0A0B0;margin:0 0 18px;">
-                    {format!("Logged in as {}", role_text)}
-                </p>
-                <p style="color:#A0A0B0;font-size:12px;margin:0;">
-                    "Role-specific pages are wired up by Phases 3–8."
-                </p>
+        <div style="min-height:100vh;background:#0A0A0F;padding:40px;">
+            <div style="max-width:800px;margin:0 auto;">
+                <h1 class="sv-text-gradient" style="font-size:28px;margin:0 0 8px;">"ScholarVault"</h1>
+                <p style="color:#A0A0B0;margin:0 0 32px;font-size:13px;">"Research & Commerce Operations Portal"</p>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+                    <a href="/knowledge" class="sv-card" style="text-decoration:none;display:block;border-left:3px solid #F5C518;">
+                        <div style="font-size:14px;font-weight:600;color:#F5C518;margin-bottom:6px;">"Knowledge"</div>
+                        <div style="font-size:11px;color:#A0A0B0;">"Categories, knowledge points, question bank"</div>
+                    </a>
+                    <a href="/outcomes" class="sv-card" style="text-decoration:none;display:block;border-left:3px solid #F5C518;">
+                        <div style="font-size:14px;font-weight:600;color:#F5C518;margin-bottom:6px;">"Outcomes"</div>
+                        <div style="font-size:11px;color:#A0A0B0;">"IP registration, contributors, evidence"</div>
+                    </a>
+                    <a href="/store" class="sv-card" style="text-decoration:none;display:block;border-left:3px solid #F5C518;">
+                        <div style="font-size:14px;font-weight:600;color:#F5C518;margin-bottom:6px;">"Store"</div>
+                        <div style="font-size:11px;color:#A0A0B0;">"Products, promotions, checkout"</div>
+                    </a>
+                    <a href="/analytics" class="sv-card" style="text-decoration:none;display:block;border-left:3px solid #F5C518;">
+                        <div style="font-size:14px;font-weight:600;color:#F5C518;margin-bottom:6px;">"Analytics"</div>
+                        <div style="font-size:11px;color:#A0A0B0;">"Dashboard, reports, CSV/PDF export"</div>
+                    </a>
+                    <a href="/admin" class="sv-card" style="text-decoration:none;display:block;border-left:3px solid #F5C518;">
+                        <div style="font-size:14px;font-weight:600;color:#F5C518;margin-bottom:6px;">"Admin"</div>
+                        <div style="font-size:11px;color:#A0A0B0;">"Users, audit log, backups, schedule"</div>
+                    </a>
+                </div>
             </div>
         </div>
     }

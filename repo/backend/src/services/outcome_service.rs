@@ -297,11 +297,25 @@ impl OutcomeService {
         Ok(rows)
     }
 
-    pub async fn remove_contributor(&self, contributor_id: &str) -> AppResult<()> {
-        sqlx::query("DELETE FROM outcome_contributors WHERE id = ?")
-            .bind(contributor_id)
-            .execute(&self.db)
-            .await?;
+    /// Delete a contributor **bound to both the outcome and the contributor id**.
+    /// Prevents an attacker from passing an arbitrary contributor id that
+    /// belongs to a different outcome than the one in the URL path — the
+    /// object-level boundary is enforced at the data layer.
+    pub async fn remove_contributor(
+        &self,
+        outcome_id: &str,
+        contributor_id: &str,
+    ) -> AppResult<()> {
+        let result = sqlx::query(
+            "DELETE FROM outcome_contributors WHERE id = ? AND outcome_id = ?",
+        )
+        .bind(contributor_id)
+        .bind(outcome_id)
+        .execute(&self.db)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound);
+        }
         Ok(())
     }
 

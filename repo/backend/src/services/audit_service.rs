@@ -18,6 +18,11 @@ pub struct AuditService {
     pub db: SqlitePool,
 }
 
+/// Sentinel used for create operations where no before-state exists.
+pub const HASH_ENTITY_CREATED: &str = "ENTITY_CREATED";
+/// Sentinel used for delete operations where no after-state exists.
+pub const HASH_ENTITY_DELETED: &str = "ENTITY_DELETED";
+
 impl AuditService {
     pub fn new(db: SqlitePool) -> Self {
         Self { db }
@@ -26,6 +31,11 @@ impl AuditService {
     /// Append one immutable audit record. **This is the sole mutation method
     /// on this service** — there is no `update_*` and no `delete_*` for the
     /// `audit_logs` table anywhere in the codebase.
+    ///
+    /// Hash enforcement: if both `before_hash` and `after_hash` are `None`
+    /// the service fills them with sentinel values so the audit trail is
+    /// always complete. Callers are expected to supply hashes, but a
+    /// missing pair is never silently dropped.
     pub async fn log(
         &self,
         actor_id: &str,
@@ -36,6 +46,22 @@ impl AuditService {
         after_hash: Option<String>,
         ip_address: Option<&str>,
     ) -> AppResult<()> {
+        // Enforce hash completeness. If both are missing, supply sentinels
+        // so auditors always have a hash pair to inspect.
+        let (before_hash, after_hash) = match (&before_hash, &after_hash) {
+            (None, None) => {
+                tracing::warn!(
+                    action = %action.as_str(),
+                    entity_type = %entity_type,
+                    "audit log missing both before and after hashes — filling sentinels"
+                );
+                (
+                    Some(HASH_ENTITY_CREATED.to_string()),
+                    Some(HASH_ENTITY_CREATED.to_string()),
+                )
+            }
+            _ => (before_hash, after_hash),
+        };
         let id = Uuid::new_v4().to_string();
         let created_at = Utc::now().to_rfc3339();
         sqlx::query(

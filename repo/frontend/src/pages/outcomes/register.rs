@@ -32,6 +32,9 @@ pub fn RegisterOutcome() -> impl IntoView {
     let (contributors, set_contributors) = create_signal::<Vec<(String, i64)>>(Vec::new());
     let (new_contrib_user, set_new_contrib_user) = create_signal::<String>("u-reviewer".into());
     let (new_contrib_share, set_new_contrib_share) = create_signal::<i64>(100);
+    // (filename, file_size_bytes) — simple tuple so the signal type compiles
+    // on both WASM and native targets (the actual upload only runs in-browser).
+    let (evidence_files, set_evidence_files) = create_signal::<Vec<(String, i64)>>(Vec::new());
 
     let create_action = move |_| {
         let payload = CreateOutcomeInput {
@@ -191,6 +194,62 @@ pub fn RegisterOutcome() -> impl IntoView {
                                 </div>
                             }
                         }}
+
+                        // ── Evidence upload ──
+                        <div style="margin-top:24px;border-top:1px solid rgba(245,197,24,0.10);padding-top:16px;">
+                            <h3 style="margin:0 0 8px;font-size:13px;color:#F5C518;">"Evidence files (PDF/JPG/PNG)"</h3>
+                            <input
+                                type="file"
+                                accept=".pdf,.jpg,.jpeg,.png"
+                                class="sv-input"
+                                style="padding:6px;"
+                                on:change=move |ev| {
+                                    use wasm_bindgen::JsCast;
+                                    let input: web_sys::HtmlInputElement =
+                                        ev.target().unwrap().unchecked_into();
+                                    if let Some(files) = input.files() {
+                                        if let Some(file) = files.get(0) {
+                                            let oid = match created_id.get() {
+                                                Some(v) => v,
+                                                None => {
+                                                    set_status.set(Some("Create outcome first".into()));
+                                                    return;
+                                                }
+                                            };
+                                            #[cfg(target_arch = "wasm32")]
+                                {
+                                    spawn_local(async move {
+                                        match out_api::upload_evidence(&oid, file).await {
+                                            Ok(ef) => {
+                                                set_evidence_files.update(|v| v.push((ef.filename, ef.file_size)));
+                                                set_status.set(Some("Evidence uploaded".into()));
+                                            }
+                                            Err(e) => set_status.set(Some(format!("Upload error: {}", e.message))),
+                                        }
+                                    });
+                                }
+                                #[cfg(not(target_arch = "wasm32"))]
+                                {
+                                    let _ = (oid, file, set_evidence_files);
+                                    set_status.set(Some("Upload only available in browser".into()));
+                                }
+                                        }
+                                    }
+                                }
+                            />
+                            {move || {
+                                let files = evidence_files.get();
+                                if files.is_empty() { ().into_view() } else {
+                                    view! {
+                                        <div style="margin-top:8px;font-size:11px;color:#A0A0B0;">
+                                            {files.into_iter().map(|(name, size)| view! {
+                                                <div>{format!("✓ {} ({} KB)", name, size / 1024)}</div>
+                                            }).collect_view()}
+                                        </div>
+                                    }.into_view()
+                                }
+                            }}
+                        </div>
 
                         <div style="display:flex;gap:8px;margin-top:24px;">
                             <button class="sv-btn-secondary" on:click=move |_| set_step.set(Step::Details)>"← Back"</button>

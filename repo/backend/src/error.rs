@@ -101,9 +101,20 @@ impl AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, code) = self.status_and_code();
+        // Never leak raw DB/IO/SQLx details to the caller. Log the detailed
+        // message on the server (so ops can debug) but return a generic
+        // user-safe string for Internal/Database failures. All other variants
+        // carry deliberately shaped messages and are safe to echo.
+        let message = match &self {
+            AppError::Internal(_) | AppError::Database(_) => {
+                tracing::error!(code = %code, detail = %self, "internal error");
+                "Internal server error".to_string()
+            }
+            _ => self.to_string(),
+        };
         let body = Json(json!({
             "code": code,
-            "message": self.to_string(),
+            "message": message,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         }));
         (status, body).into_response()

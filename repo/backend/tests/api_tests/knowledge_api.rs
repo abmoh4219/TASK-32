@@ -35,9 +35,12 @@ async fn login_as(app: axum::Router, username: &str, password: &str) -> (String,
 
 #[tokio::test]
 async fn test_get_categories_returns_seeded_tree() {
+    // Regression: knowledge reads now require authentication.
     let (app, _state) = setup_test_app().await;
+    let (session, _csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
     let req = Request::builder()
         .uri("/api/knowledge/categories")
+        .header("cookie", session)
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -46,6 +49,26 @@ async fn test_get_categories_returns_seeded_tree() {
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     let arr = body.as_array().expect("array");
     assert!(arr.len() >= 5, "seed should produce at least 5 categories");
+}
+
+#[tokio::test]
+async fn test_knowledge_read_endpoints_require_auth() {
+    let (app, _state) = setup_test_app().await;
+    for path in [
+        "/api/knowledge/categories",
+        "/api/knowledge/categories/tree",
+        "/api/knowledge/points",
+        "/api/knowledge/questions",
+    ] {
+        let req = Request::builder().uri(path).body(Body::empty()).unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "anonymous GET {} must be 401",
+            path
+        );
+    }
 }
 
 #[tokio::test]
@@ -136,10 +159,12 @@ async fn test_combined_filter_tags_csv_and_difficulty() {
     // Regression: previously the handler only accepted a single `tag` and
     // dropped the rest. The new CSV form must combine with difficulty_min/max.
     let (app, _state) = setup_test_app().await;
+    let (session, _) = login_as(app.clone(), "curator", "Scholar2024!").await;
     // Seed KPs include kp-001 "matrix","algebra" diff=3, kp-002 "calculus" diff=4,
     // kp-003 "mechanics" diff=2. Filter tags=matrix,algebra → must return kp-001.
     let req = Request::builder()
         .uri("/api/knowledge/points?tags=matrix,algebra&difficulty_min=2&difficulty_max=3")
+        .header("cookie", session)
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -156,16 +181,25 @@ async fn test_invalid_search_backoff_triggers_after_strikes() {
     // Regression: 3+ zero-result searches with criteria must trip the
     // anti-abuse backoff and produce a 429 on the next attempt.
     let (app, _state) = setup_test_app().await;
+    let (session, _) = login_as(app.clone(), "curator", "Scholar2024!").await;
     let query = "/api/knowledge/points?tags=nonexistent-tag-xyz&difficulty_min=9";
     for _ in 0..3 {
-        let req = Request::builder().uri(query).body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri(query)
+            .header("cookie", session.clone())
+            .body(Body::empty())
+            .unwrap();
         let resp = app.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let bytes = to_bytes(resp.into_body(), 16 * 1024).await.unwrap();
         let arr: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(arr.as_array().unwrap().is_empty());
     }
-    let req = Request::builder().uri(query).body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri(query)
+        .header("cookie", session)
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }

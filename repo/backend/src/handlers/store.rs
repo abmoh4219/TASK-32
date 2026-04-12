@@ -18,7 +18,10 @@ use crate::services::store_service::{
 };
 use crate::AppState;
 
-pub async fn list_products(State(state): State<AppState>) -> AppResult<Json<Vec<Product>>> {
+pub async fn list_products(
+    State(state): State<AppState>,
+    AuthenticatedUser(_): AuthenticatedUser,
+) -> AppResult<Json<Vec<Product>>> {
     let svc = StoreService::new(state.db.clone());
     Ok(Json(svc.list_products().await?))
 }
@@ -44,7 +47,10 @@ pub async fn create_product(
     Ok(Json(row))
 }
 
-pub async fn list_promotions(State(state): State<AppState>) -> AppResult<Json<Vec<Promotion>>> {
+pub async fn list_promotions(
+    State(state): State<AppState>,
+    AuthenticatedUser(_): AuthenticatedUser,
+) -> AppResult<Json<Vec<Promotion>>> {
     let svc = StoreService::new(state.db.clone());
     Ok(Json(svc.list_promotions().await?))
 }

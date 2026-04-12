@@ -11,7 +11,7 @@ use serde_json::json;
 use shared::AuditAction;
 
 use crate::error::AppResult;
-use crate::middleware::require_role::RequireCurator;
+use crate::middleware::require_role::{AuthenticatedUser, RequireCurator};
 use crate::middleware::session::CurrentUser;
 use crate::models::knowledge::{Category, KnowledgePoint, Question};
 use crate::services::audit_service::AuditService;
@@ -28,12 +28,16 @@ use crate::AppState;
 
 pub async fn list_categories(
     State(state): State<AppState>,
+    AuthenticatedUser(_): AuthenticatedUser,
 ) -> AppResult<Json<Vec<Category>>> {
     let svc = KnowledgeService::new(state.db.clone());
     Ok(Json(svc.list_categories().await?))
 }
 
-pub async fn get_tree(State(state): State<AppState>) -> AppResult<Json<Vec<CategoryNode>>> {
+pub async fn get_tree(
+    State(state): State<AppState>,
+    AuthenticatedUser(_): AuthenticatedUser,
+) -> AppResult<Json<Vec<CategoryNode>>> {
     let svc = KnowledgeService::new(state.db.clone());
     Ok(Json(svc.get_tree().await?))
 }
@@ -111,6 +115,7 @@ pub async fn delete_category(
 
 pub async fn category_reference_count(
     State(state): State<AppState>,
+    AuthenticatedUser(_): AuthenticatedUser,
     Path(id): Path<String>,
 ) -> AppResult<Json<ReferenceCount>> {
     let svc = KnowledgeService::new(state.db.clone());
@@ -234,13 +239,10 @@ pub struct FilterQuery {
 
 pub async fn list_knowledge_points(
     State(state): State<AppState>,
-    user: Option<axum::extract::Extension<CurrentUser>>,
+    AuthenticatedUser(user): AuthenticatedUser,
     Query(q): Query<FilterQuery>,
 ) -> AppResult<Json<Vec<KnowledgePoint>>> {
-    let actor = user
-        .as_ref()
-        .map(|u| u.0 .0.id.clone())
-        .unwrap_or_else(|| "anon".to_string());
+    let actor = user.id.clone();
     // Anti-abuse: reject if the caller is currently in exponential backoff
     // from repeated invalid searches. `check` is a fast DashMap read.
     state.invalid_search_tracker.check(&actor)?;
@@ -330,6 +332,7 @@ pub async fn bulk_apply(
 
 pub async fn list_questions(
     State(state): State<AppState>,
+    AuthenticatedUser(_): AuthenticatedUser,
     Query(filter): Query<QuestionFilter>,
 ) -> AppResult<Json<Vec<Question>>> {
     let svc = QuestionService::new(state.db.clone());

@@ -2,7 +2,7 @@
 
 use frontend::api::knowledge::{
     BulkUpdate, BulkUpdateRequest, CreateCategoryInput, CreateKnowledgePointInput,
-    KnowledgeFilter, KnowledgePoint, MergeRequest,
+    KnowledgeFilter, KnowledgePoint, LinkQuestionRequest, MergeRequest,
 };
 
 #[test]
@@ -81,6 +81,29 @@ fn test_bulk_update_request_carries_ids_and_changes() {
     let v = serde_json::to_value(&req).unwrap();
     assert_eq!(v["ids"].as_array().unwrap().len(), 2);
     assert_eq!(v["changes"]["difficulty"], 4);
+}
+
+#[test]
+fn test_analytics_export_paths_and_shape() {
+    use frontend::api::analytics::{csv_export_path, pdf_export_path, ExportRequest};
+    assert_eq!(csv_export_path(), "/api/analytics/export/csv");
+    assert_eq!(pdf_export_path(), "/api/analytics/export/pdf");
+    let req = ExportRequest {
+        report_type: "fund".into(),
+        period: Some("2026-04".into()),
+    };
+    let v = serde_json::to_value(&req).unwrap();
+    assert_eq!(v["report_type"], "fund");
+    assert_eq!(v["period"], "2026-04");
+}
+
+#[test]
+fn test_link_question_request_shape() {
+    let req = LinkQuestionRequest {
+        knowledge_point_id: "kp-001".into(),
+    };
+    let v = serde_json::to_value(&req).unwrap();
+    assert_eq!(v["knowledge_point_id"], "kp-001");
 }
 
 #[test]

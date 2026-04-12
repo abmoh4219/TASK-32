@@ -209,6 +209,21 @@ async fn test_get_order_requires_auth_and_blocks_cross_user_access() {
 }
 
 #[tokio::test]
+async fn test_store_read_endpoints_require_auth() {
+    let (app, _state) = setup_test_app().await;
+    for path in ["/api/store/products", "/api/store/promotions"] {
+        let req = Request::builder().uri(path).body(Body::empty()).unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "anonymous GET {} must be 401",
+            path
+        );
+    }
+}
+
+#[tokio::test]
 async fn test_preview_checkout_requires_auth() {
     // Regression: preview_checkout previously had no extractor, now aligned
     // with checkout/list/get.

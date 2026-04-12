@@ -138,6 +138,216 @@ async fn test_lockout_blocks_after_5_failures() {
 }
 
 #[tokio::test]
+async fn test_admin_create_user_encrypts_and_masks_pii() {
+    // Regression: phone + national_id must be AES-encrypted before hitting
+    // SQLite and only ever returned masked (last 4) to the UI.
+    let (app, state) = setup_test_app().await;
+
+    // Admin login.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"username":"admin","password":"ScholarAdmin2024!"}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let mut session = String::new();
+    let mut csrf = String::new();
+    for h in resp.headers().get_all("set-cookie").iter() {
+        let v = h.to_str().unwrap_or("");
+        if let Some(rest) = v.strip_prefix("sv_session=") {
+            session = format!("sv_session={}", rest.split(';').next().unwrap());
+        }
+        if let Some(rest) = v.strip_prefix("csrf_token=") {
+            csrf = rest.split(';').next().unwrap().to_string();
+        }
+    }
+
+    let phone = "5551234567";
+    let national_id = "A9876543210";
+    let payload = json!({
+        "username":"pii-user",
+        "password":"Scholar2024!",
+        "role":"content_curator",
+        "phone": phone,
+        "national_id": national_id
+    })
+    .to_string();
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/users")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(payload))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let body_text = body.to_string();
+
+    // Masked presentation only — plaintext must NOT appear anywhere in the
+    // response envelope.
+    assert!(!body_text.contains(phone), "phone plaintext leaked in response");
+    assert!(
+        !body_text.contains(national_id),
+        "national_id plaintext leaked in response"
+    );
+    assert_eq!(body["phone_masked"], "******4567");
+    assert_eq!(body["national_id_masked"], "*******3210");
+
+    // DB row must contain ciphertext, not plaintext.
+    let row: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT phone_encrypted, national_id_encrypted FROM users WHERE username = 'pii-user'",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let phone_ct = row.0.expect("phone_encrypted must be populated");
+    let nid_ct = row.1.expect("national_id_encrypted must be populated");
+    assert_ne!(phone_ct, phone, "stored phone must not be plaintext");
+    assert_ne!(nid_ct, national_id, "stored national_id must not be plaintext");
+    // AES-256-GCM + 12-byte nonce + base64 → at least ~24 chars even for a
+    // short plaintext. Sanity check that we're storing an encrypted blob.
+    assert!(phone_ct.len() > phone.len() + 8);
+    assert!(nid_ct.len() > national_id.len() + 8);
+}
+
+#[tokio::test]
+async fn test_csrf_session_bound_rejects_stale_cookie() {
+    // Double-submit alone is not enough: tamper the `sessions.csrf_token`
+    // column directly so the cookie no longer matches the server-side record
+    // and confirm the mutation path now 403s.
+    let (app, state) = setup_test_app().await;
+    let (session, csrf) = login_as_admin(app.clone()).await;
+
+    // Rotate server-side csrf_token for this session out-of-band so it no
+    // longer matches the cookie the client is still sending.
+    let session_id = session.strip_prefix("sv_session=").unwrap();
+    sqlx::query("UPDATE sessions SET csrf_token = 'rotated-server-side' WHERE id = ?")
+        .bind(session_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/auth/refresh-csrf")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "session-bound CSRF must reject a cookie that no longer matches the session row"
+    );
+}
+
+#[tokio::test]
+async fn test_security_headers_present_on_representative_routes() {
+    let (app, _state) = setup_test_app().await;
+    for path in ["/healthz", "/api/healthz"] {
+        let req = Request::builder().uri(path).body(Body::empty()).unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        let headers = resp.headers();
+        assert_eq!(resp.status(), StatusCode::OK, "{} must 200", path);
+        let hsts = headers
+            .get("Strict-Transport-Security")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert!(hsts.contains("max-age="), "HSTS missing on {}", path);
+        let csp = headers
+            .get("Content-Security-Policy")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert!(csp.contains("default-src"), "CSP missing on {}", path);
+        assert_eq!(
+            headers.get("X-Frame-Options").and_then(|v| v.to_str().ok()),
+            Some("DENY"),
+            "X-Frame-Options missing on {}",
+            path
+        );
+        assert_eq!(
+            headers
+                .get("X-Content-Type-Options")
+                .and_then(|v| v.to_str().ok()),
+            Some("nosniff"),
+            "X-Content-Type-Options missing on {}",
+            path
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_internal_errors_do_not_leak_raw_details() {
+    // Issue the middleware lookup against an unknown path parameter that
+    // forces a DB-backed not-found; assert the response body does not contain
+    // SQL/SQLx noise from the raw Database/Internal error variants.
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as_admin(app.clone()).await;
+
+    // Hit an admin-only path with a bogus id to provoke an internal lookup
+    // path; most responses will already be generic, but we additionally force
+    // a raw Database error by requesting report download with a garbage token.
+    let req = Request::builder()
+        .uri("/api/analytics/reports/does-not-exist/download/nope")
+        .header("cookie", session)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let text = String::from_utf8_lossy(&bytes).to_string();
+    // Envelope must not carry SQLx/sqlite leakage. Use a few high-signal
+    // substrings that commonly appear in raw errors from our stack.
+    for needle in [
+        "sqlx",
+        "SELECT",
+        "no such table",
+        "FOREIGN KEY",
+        "panicked",
+    ] {
+        assert!(
+            !text.contains(needle),
+            "response leaked raw error substring `{}`: {}",
+            needle,
+            text
+        );
+    }
+    let _ = csrf;
+}
+
+async fn login_as_admin(app: axum::Router) -> (String, String) {
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"username":"admin","password":"ScholarAdmin2024!"}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let mut session = String::new();
+    let mut csrf = String::new();
+    for h in resp.headers().get_all("set-cookie").iter() {
+        let v = h.to_str().unwrap_or("");
+        if let Some(rest) = v.strip_prefix("sv_session=") {
+            session = format!("sv_session={}", rest.split(';').next().unwrap());
+        }
+        if let Some(rest) = v.strip_prefix("csrf_token=") {
+            csrf = rest.split(';').next().unwrap().to_string();
+        }
+    }
+    (session, csrf)
+}
+
+#[tokio::test]
 async fn test_seed_users_all_present() {
     let pool = setup_test_db().await;
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")

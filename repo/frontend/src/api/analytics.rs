@@ -136,3 +136,23 @@ pub async fn schedule_report(req: ScheduleReportRequest) -> Result<ScheduledRepo
 pub async fn list_reports() -> Result<Vec<ScheduledReport>, ApiError> {
     get_json("/api/analytics/reports").await
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportRequest {
+    pub report_type: String,
+    pub period: Option<String>,
+}
+
+/// Direct CSV/PDF export paths are form-POSTs that stream file bytes. The
+/// simplest way to trigger a browser download is to open a POST-enabled URL
+/// inside a form submission, but for the API client we just expose the paths
+/// and the request shape so the Leptos page can either open them in a new
+/// tab or POST via fetch and convert the blob. We keep the helper simple and
+/// focused on request-shape correctness.
+pub fn csv_export_path() -> &'static str {
+    "/api/analytics/export/csv"
+}
+
+pub fn pdf_export_path() -> &'static str {
+    "/api/analytics/export/pdf"
+}

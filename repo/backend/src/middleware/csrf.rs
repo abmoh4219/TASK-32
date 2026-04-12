@@ -11,7 +11,7 @@
 
 use axum::{
     body::Body,
-    extract::Request,
+    extract::{Request, State},
     http::Method,
     middleware::Next,
     response::Response,
@@ -19,9 +19,21 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 
 use crate::error::{AppError, AppResult};
+use crate::AppState;
 
-/// Axum middleware function — wire up via `axum::middleware::from_fn(csrf_middleware)`.
+/// Axum middleware function — wire up via
+/// `axum::middleware::from_fn_with_state(state, csrf_middleware)`.
+///
+/// On state-changing verbs we enforce three invariants:
+///   1. An `X-CSRF-Token` header is present.
+///   2. It matches the `csrf_token` cookie (double-submit defence).
+///   3. When a live session exists, it also matches the token stored on the
+///      **session row in SQLite** — this is the session-bound check. An
+///      attacker who steals a stale cookie but can't observe the current
+///      session's stored token (e.g. after a refresh-csrf rotation) will
+///      have the cookie and server-side record disagree.
 pub async fn csrf_middleware(
+    State(state): State<AppState>,
     cookies: CookieJar,
     req: Request<Body>,
     next: Next,
@@ -53,6 +65,27 @@ pub async fn csrf_middleware(
     // Constant-time comparison — never short-circuit on the first byte mismatch.
     if !constant_time_eq::constant_time_eq(header_token.as_bytes(), cookie_token.as_bytes()) {
         return Err(AppError::CsrfInvalid);
+    }
+
+    // Session-bound check: if a session cookie is present, the supplied header
+    // must additionally match the token persisted on the `sessions` row.
+    if let Some(session_cookie) = cookies.get("sv_session") {
+        let session_id = session_cookie.value();
+        let stored: Option<(String,)> = sqlx::query_as(
+            "SELECT csrf_token FROM sessions WHERE id = ?",
+        )
+        .bind(session_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("csrf session lookup: {e}")))?;
+        if let Some((session_token,)) = stored {
+            if !constant_time_eq::constant_time_eq(
+                header_token.as_bytes(),
+                session_token.as_bytes(),
+            ) {
+                return Err(AppError::CsrfInvalid);
+            }
+        }
     }
 
     Ok(next.run(req).await)

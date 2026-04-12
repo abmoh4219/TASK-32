@@ -129,14 +129,30 @@ pub async fn login(
     ))
 }
 
-/// POST /api/auth/logout — clears the session row and the cookies.
+/// POST /api/auth/logout — clears the session row and the cookies. Emits an
+/// audit log row so the actor + timestamp of every logout is recorded.
 pub async fn logout(
     State(state): State<AppState>,
     cookies: CookieJar,
+    user: Option<axum::extract::Extension<CurrentUser>>,
 ) -> AppResult<(CookieJar, Json<serde_json::Value>)> {
     if let Some(session_cookie) = cookies.get("sv_session") {
         let auth = AuthService::new(state.db.clone());
         auth.logout(session_cookie.value()).await?;
+    }
+    if let Some(u) = user {
+        let actor_id = u.0 .0.id.clone();
+        let _ = AuditService::new(state.db.clone())
+            .log(
+                &actor_id,
+                AuditAction::Logout,
+                "user",
+                Some(&actor_id),
+                None,
+                None,
+                None,
+            )
+            .await;
     }
     let cookies = cookies
         .remove(Cookie::from("sv_session"))
@@ -172,6 +188,10 @@ pub struct CreateUserRequest {
     pub role: String,
     pub full_name: Option<String>,
     pub email: Option<String>,
+    /// Plaintext PII accepted **only on the request**. Encrypted at the
+    /// service layer before hitting SQLite — never stored or echoed raw.
+    pub phone: Option<String>,
+    pub national_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -183,10 +203,28 @@ pub struct UserSummary {
     pub full_name: Option<String>,
     pub email: Option<String>,
     pub created_at: String,
+    /// Masked last-4 presentation of encrypted PII. `None` when the column is
+    /// not set. The plaintext is *never* included in any API response.
+    pub phone_masked: Option<String>,
+    pub national_id_masked: Option<String>,
 }
 
-impl From<crate::models::user::User> for UserSummary {
-    fn from(u: crate::models::user::User) -> Self {
+impl UserSummary {
+    /// Build a response DTO from a database row. PII columns are decrypted
+    /// with the supplied key and then masked for presentation — the UI never
+    /// sees plaintext. Decryption failures are swallowed to avoid leaking
+    /// ciphertext into the response; the field simply becomes `None`.
+    pub fn from_user_masked(u: crate::models::user::User, key: &[u8; 32]) -> Self {
+        let phone_masked = u
+            .phone_encrypted
+            .as_deref()
+            .and_then(|ct| crate::security::encryption::decrypt_field(ct, key).ok())
+            .map(|plain| crate::security::encryption::mask_sensitive(&plain));
+        let national_id_masked = u
+            .national_id_encrypted
+            .as_deref()
+            .and_then(|ct| crate::security::encryption::decrypt_field(ct, key).ok())
+            .map(|plain| crate::security::encryption::mask_sensitive(&plain));
         Self {
             id: u.id,
             username: u.username,
@@ -195,6 +233,8 @@ impl From<crate::models::user::User> for UserSummary {
             full_name: u.full_name,
             email: u.email,
             created_at: u.created_at,
+            phone_masked,
+            national_id_masked,
         }
     }
 }
@@ -205,7 +245,13 @@ pub async fn admin_list_users(
 ) -> AppResult<Json<Vec<UserSummary>>> {
     let svc = AuthService::new(state.db.clone());
     let users = svc.list_users().await?;
-    Ok(Json(users.into_iter().map(UserSummary::from).collect()))
+    let key: &[u8; 32] = &state.encryption_key;
+    Ok(Json(
+        users
+            .into_iter()
+            .map(|u| UserSummary::from_user_masked(u, key))
+            .collect(),
+    ))
 }
 
 pub async fn admin_create_user(
@@ -214,6 +260,7 @@ pub async fn admin_create_user(
     Json(req): Json<CreateUserRequest>,
 ) -> AppResult<Json<UserSummary>> {
     let svc = AuthService::new(state.db.clone());
+    let key: [u8; 32] = *state.encryption_key;
     let user = svc
         .create_user(
             &req.username,
@@ -221,6 +268,9 @@ pub async fn admin_create_user(
             &req.role,
             req.full_name.as_deref(),
             req.email.as_deref(),
+            req.phone.as_deref(),
+            req.national_id.as_deref(),
+            &key,
         )
         .await?;
     AuditService::new(state.db.clone())
@@ -234,7 +284,7 @@ pub async fn admin_create_user(
             None,
         )
         .await?;
-    Ok(Json(UserSummary::from(user)))
+    Ok(Json(UserSummary::from_user_masked(user, &key)))
 }
 
 #[derive(Deserialize)]
@@ -261,7 +311,10 @@ pub async fn admin_change_role(
             None,
         )
         .await?;
-    Ok(Json(UserSummary::from(user)))
+    Ok(Json(UserSummary::from_user_masked(
+        user,
+        &state.encryption_key,
+    )))
 }
 
 #[derive(Deserialize)]

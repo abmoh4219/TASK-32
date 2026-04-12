@@ -9,7 +9,7 @@ use shared::AuditAction;
 
 use crate::error::AppResult;
 use crate::middleware::require_role::RequireAdmin;
-use crate::models::backup::{BackupRecord, RetentionPolicy};
+use crate::models::backup::{BackupRecord, BackupSchedule, RetentionPolicy};
 use crate::services::audit_service::AuditService;
 use crate::services::backup_service::{BackupService, CleanupResult, SandboxValidationReport};
 use crate::AppState;
@@ -142,6 +142,51 @@ pub struct UpdatePolicyRequest {
     pub monthly_retention: i64,
     pub preserve_financial: bool,
     pub preserve_ip: bool,
+}
+
+pub async fn get_schedule(
+    State(state): State<AppState>,
+    RequireAdmin(_): RequireAdmin,
+) -> AppResult<Json<BackupSchedule>> {
+    Ok(Json(build(&state).get_schedule().await?))
+}
+
+#[derive(serde::Deserialize)]
+pub struct UpdateScheduleRequest {
+    pub cron_expr: String,
+}
+
+pub async fn update_schedule(
+    State(state): State<AppState>,
+    RequireAdmin(user): RequireAdmin,
+    Json(req): Json<UpdateScheduleRequest>,
+) -> AppResult<Json<BackupSchedule>> {
+    let svc = build(&state);
+    let updated = svc.update_schedule(&req.cron_expr, &user.id).await?;
+    // Hot-reload the running scheduler so the new cron takes effect without a
+    // full app restart. Failure to reload is logged but doesn't roll back the
+    // persisted change — operators can retry or restart the process.
+    if let Err(e) = crate::services::backup_scheduler::reload_scheduler(
+        state.scheduler_handle.clone(),
+        std::sync::Arc::new(svc),
+        &updated.cron_expr,
+    )
+    .await
+    {
+        tracing::warn!(error = ?e, "backup scheduler reload failed — restart required");
+    }
+    AuditService::new(state.db.clone())
+        .log(
+            &user.id,
+            AuditAction::Update,
+            "backup_schedule",
+            Some(&updated.id),
+            None,
+            Some(AuditService::compute_hash(&updated.cron_expr)),
+            None,
+        )
+        .await?;
+    Ok(Json(updated))
 }
 
 pub async fn update_policy(

@@ -164,6 +164,23 @@ pub async fn list_questions() -> Result<Vec<Question>, ApiError> {
     get_json("/api/knowledge/questions").await
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkQuestionRequest {
+    pub knowledge_point_id: String,
+}
+
+/// Link an existing question to a knowledge point (curator workflow).
+pub async fn link_question_to_kp(
+    question_id: &str,
+    knowledge_point_id: String,
+) -> Result<serde_json::Value, ApiError> {
+    post_json(
+        &format!("/api/knowledge/questions/{}/link", question_id),
+        &LinkQuestionRequest { knowledge_point_id },
+    )
+    .await
+}
+
 #[allow(dead_code)]
 pub async fn _put_kp(id: &str, body: serde_json::Value) -> Result<KnowledgePoint, ApiError> {
     put_json(&format!("/api/knowledge/points/{}", id), &body).await

@@ -16,6 +16,17 @@ pub struct BackupRecord {
     pub restored_at: Option<String>,
     /// `database` or `files`. NULL for legacy rows created before the split.
     pub artifact_kind: Option<String>,
+    /// Structured retention classification replacing filename heuristics.
+    pub contains_financial: i64,
+    pub contains_ip: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BackupSchedule {
+    pub id: String,
+    pub cron_expr: String,
+    pub updated_at: String,
+    pub updated_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

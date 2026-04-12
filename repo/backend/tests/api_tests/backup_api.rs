@@ -159,6 +159,143 @@ async fn test_backup_run_produces_independent_db_and_files_records() {
 }
 
 #[tokio::test]
+async fn test_backup_schedule_admin_update_and_persist() {
+    let (app, _state) = setup_test_app().await;
+    let (a_sess, a_csrf) = login_as(app.clone(), "admin", "ScholarAdmin2024!").await;
+    let a_cookie = format!("{}; csrf_token={}", a_sess, a_csrf);
+
+    // GET default — seeded to "0 0 2 * * *".
+    let req = Request::builder()
+        .uri("/api/backup/schedule")
+        .header("cookie", a_cookie.clone())
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 32 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["cron_expr"], "0 0 2 * * *");
+
+    // Admin updates the cron expression.
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/backup/schedule")
+        .header("content-type", "application/json")
+        .header("cookie", a_cookie.clone())
+        .header("X-CSRF-Token", a_csrf.clone())
+        .body(Body::from(json!({"cron_expr":"0 30 3 * * *"}).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 32 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["cron_expr"], "0 30 3 * * *");
+
+    // Read back — persisted.
+    let req = Request::builder()
+        .uri("/api/backup/schedule")
+        .header("cookie", a_cookie)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = to_bytes(resp.into_body(), 32 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["cron_expr"], "0 30 3 * * *");
+
+    // Non-admin (curator) rejected.
+    let (c_sess, c_csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/backup/schedule")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", c_sess, c_csrf))
+        .header("X-CSRF-Token", c_csrf)
+        .body(Body::from(json!({"cron_expr":"0 0 4 * * *"}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_restore_activation_applies_db_file_to_live_path() {
+    // Regression: activation was a no-op that only stamped restored_at.
+    // Drives BackupService against a real on-disk SQLite file with the full
+    // migration suite so sandbox validation (integrity_check + SELECT users)
+    // passes, then proves activation actually overwrites the live file.
+    use backend::services::backup_service::BackupService;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::fs;
+    use std::str::FromStr;
+
+    let (_, state) = setup_test_app().await;
+    let tmp = std::env::temp_dir().join(format!("sv-restore-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&tmp).unwrap();
+    let live_db = tmp.join("live.db");
+    let live_evidence = tmp.join("evidence");
+    fs::create_dir_all(&live_evidence).unwrap();
+
+    // Build a real file-backed SQLite database with the full migration suite
+    // seeded so the sandbox checks (integrity + users read) pass.
+    let opts = SqliteConnectOptions::from_str(&format!(
+        "sqlite://{}",
+        live_db.to_string_lossy()
+    ))
+    .unwrap()
+    .create_if_missing(true);
+    let live_pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await
+        .unwrap();
+    let migrations_dir = format!(
+        "{}/src/db/migrations",
+        std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into())
+    );
+    backend::db::run_migrations(&live_pool, &migrations_dir)
+        .await
+        .unwrap();
+    live_pool.close().await;
+
+    let original_bytes = fs::read(&live_db).unwrap();
+    assert!(original_bytes.len() > 1000, "seeded db should be non-trivial");
+
+    let svc = BackupService::new(
+        state.db.clone(),
+        live_db.clone(),
+        live_evidence.clone(),
+        tmp.join("backups"),
+        *state.encryption_key,
+    );
+    let db_record = svc.run_backup().await.unwrap();
+    assert_eq!(db_record.artifact_kind.as_deref(), Some("database"));
+
+    // Mutate the live file between backup and restore — we write a marker
+    // tail so file length changes and content differs from the backup.
+    let mut corrupted = original_bytes.clone();
+    corrupted.extend_from_slice(b"AFTER-BACKUP-EDIT");
+    fs::write(&live_db, &corrupted).unwrap();
+    assert_ne!(fs::read(&live_db).unwrap(), original_bytes);
+
+    // Activation must actually restore the live db file contents.
+    svc.activate_restore(&db_record.id).await.unwrap();
+    assert_eq!(
+        fs::read(&live_db).unwrap(),
+        original_bytes,
+        "activation must overwrite the live db with the backed-up contents"
+    );
+
+    // Backup record now carries restored_at.
+    let row: (Option<String>,) = sqlx::query_as(
+        "SELECT restored_at FROM backup_records WHERE id = ?",
+    )
+    .bind(&db_record.id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert!(row.0.is_some(), "restored_at must be stamped after activation");
+}
+
+#[tokio::test]
 async fn test_retention_policy_admin_can_update_others_cannot() {
     let (app, _state) = setup_test_app().await;
     let (a_sess, a_csrf) = login_as(app.clone(), "admin", "ScholarAdmin2024!").await;

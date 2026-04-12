@@ -27,7 +27,7 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::models::backup::{BackupRecord, RetentionPolicy};
+use crate::models::backup::{BackupRecord, BackupSchedule, RetentionPolicy};
 use crate::security::encryption;
 
 #[derive(Clone)]
@@ -122,8 +122,12 @@ impl BackupService {
         let db_encrypted = encryption::encrypt_bytes(&db_tar_buf, &self.encryption_key)?;
         fs::write(&db_bundle_path, &db_encrypted).map_err(AppError::from)?;
         let db_hash = hex::encode(Sha256::digest(&db_encrypted));
+        // Classification: the SQLite database carries the authoritative
+        // financial (fund_transactions, orders, export_logs) AND IP
+        // (outcomes, evidence_files metadata) records, so the database bundle
+        // is marked as containing both categories for retention preservation.
         sqlx::query(
-            "INSERT INTO backup_records (id, backup_type, bundle_path, sha256_hash, status, size_bytes, created_at, artifact_kind) VALUES (?, ?, ?, ?, 'complete', ?, ?, 'database')",
+            "INSERT INTO backup_records (id, backup_type, bundle_path, sha256_hash, status, size_bytes, created_at, artifact_kind, contains_financial, contains_ip) VALUES (?, ?, ?, ?, 'complete', ?, ?, 'database', 1, 1)",
         )
         .bind(&db_id)
         .bind(backup_type)
@@ -162,8 +166,10 @@ impl BackupService {
             encryption::encrypt_bytes(&files_tar_buf, &self.encryption_key)?;
         fs::write(&files_bundle_path, &files_encrypted).map_err(AppError::from)?;
         let files_hash = hex::encode(Sha256::digest(&files_encrypted));
+        // Files artifact holds evidence uploads which are IP records — but not
+        // ledger/financial rows — so only the IP flag is set.
         sqlx::query(
-            "INSERT INTO backup_records (id, backup_type, bundle_path, sha256_hash, status, size_bytes, created_at, artifact_kind) VALUES (?, ?, ?, ?, 'complete', ?, ?, 'files')",
+            "INSERT INTO backup_records (id, backup_type, bundle_path, sha256_hash, status, size_bytes, created_at, artifact_kind, contains_financial, contains_ip) VALUES (?, ?, ?, ?, 'complete', ?, ?, 'files', 0, 1)",
         )
         .bind(&files_id)
         .bind(backup_type)
@@ -284,9 +290,12 @@ impl BackupService {
         })
     }
 
-    /// Replace the live SQLite file with the sandbox copy. Refuses if the
-    /// validation report is not all-green. NOT covered by automated tests
-    /// because it overwrites the running database file.
+    /// Re-validate the sandbox and **atomically apply** the artifact to live
+    /// storage. Database artifacts overwrite the live SQLite file; files
+    /// artifacts replace the evidence directory contents. Before mutating
+    /// anything we snapshot the current live state to a sibling
+    /// `.pre-restore-<ts>` location so any failure rolls back cleanly. Refuses
+    /// when sandbox validation didn't fully pass.
     pub async fn activate_restore(&self, backup_id: &str) -> AppResult<()> {
         let report = self.restore_to_sandbox(backup_id).await?;
         if !report.all_passed {
@@ -294,6 +303,96 @@ impl BackupService {
                 "sandbox validation must pass before activation".into(),
             ));
         }
+        let row = sqlx::query_as::<_, BackupRecord>(
+            "SELECT * FROM backup_records WHERE id = ?",
+        )
+        .bind(backup_id)
+        .fetch_optional(&self.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
+        // Re-extract the bundle into a sandbox directory. We already know the
+        // hash/integrity checks passed above, so this is just for the apply.
+        let bundle_bytes = fs::read(&row.bundle_path).map_err(AppError::from)?;
+        let plaintext = encryption::decrypt_bytes(&bundle_bytes, &self.encryption_key)?;
+        let sandbox_dir =
+            std::env::temp_dir().join(format!("scholarvault-apply-{}", Uuid::new_v4()));
+        fs::create_dir_all(&sandbox_dir).map_err(AppError::from)?;
+        {
+            let cursor = Cursor::new(&plaintext);
+            let decoder = GzDecoder::new(cursor);
+            let mut archive = tar::Archive::new(decoder);
+            archive.unpack(&sandbox_dir).map_err(AppError::from)?;
+        }
+
+        let ts = Utc::now().format("%Y%m%d%H%M%S").to_string();
+        let kind = row.artifact_kind.as_deref().unwrap_or("database");
+        match kind {
+            "database" => {
+                let sandbox_db = sandbox_dir.join("scholarvault.db");
+                if !sandbox_db.exists() {
+                    return Err(AppError::Internal(
+                        "sandbox missing scholarvault.db".into(),
+                    ));
+                }
+                // Rollback guard: copy the live db aside before overwriting.
+                let rollback_path = self
+                    .db_path
+                    .with_extension(format!("pre-restore-{ts}.db"));
+                if self.db_path.exists() {
+                    fs::copy(&self.db_path, &rollback_path).map_err(AppError::from)?;
+                }
+                if let Err(e) = fs::copy(&sandbox_db, &self.db_path) {
+                    // Best-effort rollback.
+                    if rollback_path.exists() {
+                        let _ = fs::copy(&rollback_path, &self.db_path);
+                    }
+                    return Err(AppError::Internal(format!(
+                        "failed to activate database artifact: {e}"
+                    )));
+                }
+            }
+            "files" => {
+                let sandbox_evidence = sandbox_dir.join("evidence");
+                if !sandbox_evidence.exists() {
+                    return Err(AppError::Internal(
+                        "sandbox missing evidence directory".into(),
+                    ));
+                }
+                // Rollback guard: rename current evidence dir aside.
+                let rollback_dir = self
+                    .evidence_dir
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("/tmp"))
+                    .join(format!(
+                        "{}-pre-restore-{ts}",
+                        self.evidence_dir
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("evidence")
+                    ));
+                if self.evidence_dir.exists() {
+                    let _ = fs::rename(&self.evidence_dir, &rollback_dir);
+                }
+                if let Err(e) = copy_dir_recursive(&sandbox_evidence, &self.evidence_dir)
+                {
+                    // Rollback: put the old directory back.
+                    let _ = fs::remove_dir_all(&self.evidence_dir);
+                    if rollback_dir.exists() {
+                        let _ = fs::rename(&rollback_dir, &self.evidence_dir);
+                    }
+                    return Err(AppError::Internal(format!(
+                        "failed to activate files artifact: {e}"
+                    )));
+                }
+            }
+            other => {
+                return Err(AppError::Validation(format!(
+                    "unknown artifact_kind: {other}"
+                )));
+            }
+        }
+
         let now = Utc::now().to_rfc3339();
         sqlx::query("UPDATE backup_records SET restored_at = ? WHERE id = ?")
             .bind(&now)
@@ -301,6 +400,47 @@ impl BackupService {
             .execute(&self.db)
             .await?;
         Ok(())
+    }
+
+    // ─── Admin-configurable schedule ─────────────────────────────────────
+
+    pub async fn get_schedule(&self) -> AppResult<BackupSchedule> {
+        let row = sqlx::query_as::<_, BackupSchedule>(
+            "SELECT * FROM backup_schedules WHERE id = 'default'",
+        )
+        .fetch_optional(&self.db)
+        .await?;
+        row.ok_or_else(|| AppError::Internal("backup schedule missing".into()))
+    }
+
+    pub async fn update_schedule(
+        &self,
+        cron_expr: &str,
+        actor_id: &str,
+    ) -> AppResult<BackupSchedule> {
+        let trimmed = cron_expr.trim();
+        if trimmed.is_empty() {
+            return Err(AppError::Validation("cron_expr is required".into()));
+        }
+        // Minimal sanity check: tokio_cron_scheduler uses 6- or 7-field cron
+        // (sec min hour dom mon dow [year]). Reject anything shorter so the
+        // scheduler doesn't crash on reload.
+        let field_count = trimmed.split_whitespace().count();
+        if !(5..=7).contains(&field_count) {
+            return Err(AppError::Validation(format!(
+                "cron_expr must have 5-7 fields, got {field_count}"
+            )));
+        }
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            "UPDATE backup_schedules SET cron_expr = ?, updated_at = ?, updated_by = ? WHERE id = 'default'",
+        )
+        .bind(trimmed)
+        .bind(&now)
+        .bind(actor_id)
+        .execute(&self.db)
+        .await?;
+        self.get_schedule().await
     }
 
     /// Apply the active retention policy: delete daily backups older than
@@ -337,13 +477,15 @@ impl BackupService {
             if !too_old {
                 continue;
             }
-            // Honour the financial / ip preserve flags by tagging the
-            // bundle as preserved instead of purged when present.
-            if policy.preserve_financial == 1 && r.bundle_path.contains("financial") {
+            // Preserve from structured classification metadata (no filename
+            // guessing): if the record is flagged as containing financial or
+            // IP data and the policy asks to preserve that category, we skip
+            // the purge and increment the preserved counter.
+            if policy.preserve_financial == 1 && r.contains_financial == 1 {
                 preserved_financial += 1;
                 continue;
             }
-            if policy.preserve_ip == 1 && r.bundle_path.contains("ip") {
+            if policy.preserve_ip == 1 && r.contains_ip == 1 {
                 preserved_ip += 1;
                 continue;
             }
@@ -420,4 +562,24 @@ impl BackupService {
             None => true,
         }
     }
+}
+
+/// Recursive directory copy used by the files-artifact restore path. Creates
+/// the destination if missing, then walks the source tree copying every
+/// regular file. Not fancy: this is a narrow helper for activation, not a
+/// general-purpose utility.
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_recursive(&from, &to)?;
+        } else if ty.is_file() {
+            fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
 }

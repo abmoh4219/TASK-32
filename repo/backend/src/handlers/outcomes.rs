@@ -27,6 +27,27 @@ fn outcome_privileged(role: &str) -> bool {
     )
 }
 
+fn is_admin(role: &str) -> bool {
+    shared::UserRole::from_str(role) == Some(shared::UserRole::Administrator)
+}
+
+/// Object-level authz for outcome mutations. For draft-stage operations
+/// (submit, contributors, evidence upload) only the creator or an admin may
+/// act. This prevents reviewer A from mutating reviewer B's draft.
+async fn require_outcome_creator(
+    svc: &OutcomeService,
+    outcome_id: &str,
+    user_id: &str,
+    role: &str,
+) -> AppResult<Outcome> {
+    let outcome = svc.get_outcome(outcome_id).await?;
+    if is_admin(role) || outcome.created_by == user_id {
+        Ok(outcome)
+    } else {
+        Err(AppError::Forbidden)
+    }
+}
+
 pub async fn list_outcomes(
     State(state): State<AppState>,
     AuthenticatedUser(user): AuthenticatedUser,
@@ -80,7 +101,7 @@ pub async fn create_outcome(
             AuditAction::Create,
             "outcome",
             Some(&result.outcome.id),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_CREATED.to_string()),
             Some(AuditService::compute_hash(
                 &serde_json::to_string(&result.outcome)?,
             )),
@@ -97,6 +118,7 @@ pub async fn add_contributor(
     Json(input): Json<AddContributorInput>,
 ) -> AppResult<Json<OutcomeContributor>> {
     let svc = OutcomeService::new(state.db.clone());
+    require_outcome_creator(&svc, &outcome_id, &user.id, &user.role).await?;
     let row = svc.add_contributor(&outcome_id, input).await?;
     AuditService::new(state.db.clone())
         .log(
@@ -118,7 +140,8 @@ pub async fn remove_contributor(
     Path((outcome_id, contributor_id)): Path<(String, String)>,
 ) -> AppResult<Json<serde_json::Value>> {
     let svc = OutcomeService::new(state.db.clone());
-    svc.remove_contributor(&contributor_id).await?;
+    require_outcome_creator(&svc, &outcome_id, &user.id, &user.role).await?;
+    svc.remove_contributor(&outcome_id, &contributor_id).await?;
     AuditService::new(state.db.clone())
         .log(
             &user.id,
@@ -126,7 +149,7 @@ pub async fn remove_contributor(
             "outcome_contributor",
             Some(&outcome_id),
             Some(AuditService::compute_hash(&contributor_id)),
-            None,
+            Some(crate::services::audit_service::HASH_ENTITY_DELETED.to_string()),
             None,
         )
         .await?;
@@ -139,6 +162,8 @@ pub async fn submit_outcome(
     Path(id): Path<String>,
 ) -> AppResult<Json<Outcome>> {
     let svc = OutcomeService::new(state.db.clone());
+    let before = require_outcome_creator(&svc, &id, &user.id, &user.role).await?;
+    let before_hash = AuditService::compute_hash(&serde_json::to_string(&before)?);
     let updated = svc.submit_outcome(&id).await?;
     AuditService::new(state.db.clone())
         .log(
@@ -146,7 +171,7 @@ pub async fn submit_outcome(
             AuditAction::Submit,
             "outcome",
             Some(&id),
-            None,
+            Some(before_hash),
             Some(AuditService::compute_hash(&serde_json::to_string(&updated)?)),
             None,
         )
@@ -165,6 +190,8 @@ pub async fn approve_outcome(
     Path(id): Path<String>,
 ) -> AppResult<Json<Outcome>> {
     let svc = OutcomeService::new(state.db.clone());
+    let before = svc.get_outcome(&id).await?;
+    let before_hash = AuditService::compute_hash(&serde_json::to_string(&before)?);
     let updated = svc.approve_outcome(&id, &user.id).await?;
     AuditService::new(state.db.clone())
         .log(
@@ -172,7 +199,7 @@ pub async fn approve_outcome(
             AuditAction::Approve,
             "outcome",
             Some(&id),
-            None,
+            Some(before_hash),
             Some(AuditService::compute_hash(&serde_json::to_string(&updated)?)),
             None,
         )
@@ -187,6 +214,8 @@ pub async fn reject_outcome(
     Json(req): Json<ApprovalRequest>,
 ) -> AppResult<Json<Outcome>> {
     let svc = OutcomeService::new(state.db.clone());
+    let before = svc.get_outcome(&id).await?;
+    let before_hash = AuditService::compute_hash(&serde_json::to_string(&before)?);
     let reason = req.reason.unwrap_or_else(|| "no reason supplied".into());
     let updated = svc.reject_outcome(&id, &user.id, &reason).await?;
     AuditService::new(state.db.clone())
@@ -195,7 +224,7 @@ pub async fn reject_outcome(
             AuditAction::Reject,
             "outcome",
             Some(&id),
-            None,
+            Some(before_hash),
             Some(AuditService::compute_hash(&serde_json::to_string(&updated)?)),
             None,
         )
@@ -209,6 +238,8 @@ pub async fn upload_evidence(
     Path(outcome_id): Path<String>,
     mut multipart: Multipart,
 ) -> AppResult<Json<EvidenceFile>> {
+    let svc = OutcomeService::new(state.db.clone());
+    require_outcome_creator(&svc, &outcome_id, &user.id, &user.role).await?;
     let mut bytes_field: Option<Vec<u8>> = None;
     let mut filename = String::from("upload.bin");
     let mut declared_mime = String::from("application/octet-stream");

@@ -131,27 +131,50 @@ async fn test_lifecycle_cleanup_preserves_recent() {
 }
 
 #[tokio::test]
-async fn test_lifecycle_cleanup_preserves_financial_marker() {
+async fn test_lifecycle_cleanup_preserves_by_classification_flag() {
+    // Regression: preservation must come from the structured
+    // contains_financial/contains_ip columns, not filename heuristics.
     let pool = fresh_db().await;
     let svc = build(pool.clone(), std::path::PathBuf::from(":memory:"));
-    // Bundle path contains "financial" → preserved by policy.preserve_financial=1.
     let old_date = (Utc::now() - Duration::days(60)).to_rfc3339();
-    let bundle = svc.backup_dir.join("financial-archive.bin");
-    std::fs::write(&bundle, b"test").unwrap();
+
+    // Record with contains_financial=1 — deliberately named with no
+    // "financial" substring to prove it's the metadata flag being read.
+    let preserved_bundle = svc.backup_dir.join("db-abc123.bin");
+    std::fs::write(&preserved_bundle, b"test").unwrap();
     sqlx::query(
-        "INSERT INTO backup_records (id, backup_type, bundle_path, sha256_hash, status, size_bytes, created_at) VALUES (?, 'daily', ?, ?, 'complete', 4, ?)",
+        "INSERT INTO backup_records (id, backup_type, bundle_path, sha256_hash, status, size_bytes, created_at, artifact_kind, contains_financial, contains_ip) VALUES (?, 'daily', ?, ?, 'complete', 4, ?, 'database', 1, 1)",
     )
-    .bind("fin-1")
-    .bind(bundle.to_string_lossy().to_string())
+    .bind("fin-structured")
+    .bind(preserved_bundle.to_string_lossy().to_string())
     .bind("hash")
     .bind(&old_date)
     .execute(&pool)
     .await
     .unwrap();
+
+    // Second record with classification flags off — must be purged.
+    let purged_bundle = svc.backup_dir.join("misc-financial-name.bin");
+    std::fs::write(&purged_bundle, b"test").unwrap();
+    sqlx::query(
+        "INSERT INTO backup_records (id, backup_type, bundle_path, sha256_hash, status, size_bytes, created_at, contains_financial, contains_ip) VALUES (?, 'daily', ?, ?, 'complete', 4, ?, 0, 0)",
+    )
+    .bind("misc-1")
+    .bind(purged_bundle.to_string_lossy().to_string())
+    .bind("hash")
+    .bind(&old_date)
+    .execute(&pool)
+    .await
+    .unwrap();
+
     let res = svc.apply_lifecycle_cleanup().await.unwrap();
     assert_eq!(res.preserved_financial, 1);
-    assert_eq!(res.purged_daily, 0);
-    assert!(bundle.exists());
+    assert_eq!(res.purged_daily, 1, "unflagged record must still be purged");
+    assert!(
+        preserved_bundle.exists(),
+        "classification-flagged record must survive cleanup"
+    );
+    assert!(!purged_bundle.exists());
 }
 
 #[tokio::test]

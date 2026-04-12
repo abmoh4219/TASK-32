@@ -117,3 +117,69 @@ pub async fn submit_outcome(id: &str) -> Result<Outcome, ApiError> {
 pub async fn compare_outcomes(a: &str, b: &str) -> Result<CompareResult, ApiError> {
     get_json(&format!("/api/outcomes/{}/compare/{}", a, b)).await
 }
+
+/// Upload an evidence file (PDF/JPG/PNG) to an existing outcome. Uses the
+/// browser's `FormData` + `fetch` API to construct a real multipart/form-data
+/// request that the backend's `Multipart` extractor expects.
+///
+/// Only compiled under WASM — native test targets cannot construct browser
+/// FormData objects.
+#[cfg(target_arch = "wasm32")]
+pub async fn upload_evidence(
+    outcome_id: &str,
+    file: web_sys::File,
+) -> Result<EvidenceFile, ApiError> {
+    use wasm_bindgen::JsCast;
+    let form = web_sys::FormData::new().map_err(|_| ApiError {
+        status: 0,
+        code: "JS_ERROR".into(),
+        message: "FormData init failed".into(),
+    })?;
+    form.append_with_blob("file", &file).map_err(|_| ApiError {
+        status: 0,
+        code: "JS_ERROR".into(),
+        message: "FormData append failed".into(),
+    })?;
+    let csrf = crate::api::client::read_csrf_cookie().unwrap_or_default();
+    let opts = web_sys::RequestInit::new();
+    opts.set_method("POST");
+    opts.set_body(&form.into());
+    let headers = web_sys::Headers::new().unwrap();
+    headers.set("X-CSRF-Token", &csrf).ok();
+    opts.set_headers(&headers.into());
+    let url = format!("/api/outcomes/{}/evidence", outcome_id);
+    let window = web_sys::window().unwrap();
+    let resp_val = wasm_bindgen_futures::JsFuture::from(
+        window.fetch_with_str_and_init(&url, &opts),
+    )
+    .await
+    .map_err(|_| ApiError {
+        status: 0,
+        code: "NETWORK".into(),
+        message: "fetch failed".into(),
+    })?;
+    let resp: web_sys::Response = resp_val.unchecked_into();
+    let status = resp.status();
+    let text = wasm_bindgen_futures::JsFuture::from(resp.text().unwrap())
+        .await
+        .map_err(|_| ApiError {
+            status,
+            code: "PARSE".into(),
+            message: "body read failed".into(),
+        })?
+        .as_string()
+        .unwrap_or_default();
+    if !resp.ok() {
+        let err: ApiError = serde_json::from_str(&text).unwrap_or(ApiError {
+            status,
+            code: "UNKNOWN".into(),
+            message: "upload failed".into(),
+        });
+        return Err(err);
+    }
+    serde_json::from_str(&text).map_err(|e| ApiError {
+        status,
+        code: "PARSE".into(),
+        message: format!("deserialize: {e}"),
+    })
+}
