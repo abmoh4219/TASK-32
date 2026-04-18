@@ -8,3 +8,4 @@ dist/
 .DS_Store
 convert-ai-sessions.py
 .claude/
+test-results/
