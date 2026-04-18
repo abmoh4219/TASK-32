@@ -48,6 +48,12 @@ services:
     depends_on:
       setup:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   test:
     profiles: ["test"]
@@ -62,7 +68,24 @@ services:
       ENCRYPTION_KEY: test-encryption-key-exactly-32bytes
       SIGNING_KEY: test-signing-key-for-tests-only!!!!
       RUST_LOG: error
+      SCHOLARVAULT_IN_DOCKER: "1"
     command: ["sh", "run_tests.sh"]
+
+  playwright:
+    profiles: ["e2e"]
+    image: mcr.microsoft.com/playwright:v1.59.1-jammy
+    working_dir: /app
+    volumes:
+      - ".:/app"
+    environment:
+      BASE_URL: http://app:3000
+      CI: "true"
+    command: >
+      sh -c "npm install --prefer-offline &&
+             npx playwright test"
+    depends_on:
+      app:
+        condition: service_healthy
 
 volumes:
   app-data: {}

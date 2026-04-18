@@ -344,6 +344,126 @@ async fn test_checkout_rejects_missing_product() {
         "missing product must be rejected");
 }
 
+// ─── POST /api/store/products ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_create_product_store_manager_succeeds() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "store", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/store/products")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({
+                "name": "New Textbook",
+                "description": "A brand new textbook",
+                "price": 49.99,
+                "stock_quantity": 100
+            }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_create_product_reviewer_forbidden() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/store/products")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({"name":"Forbidden","description":"x","price":10.0,"stock_quantity":1}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_create_product_anonymous_returns_401() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/store/products")
+        .header("content-type", "application/json")
+        .header("cookie", "csrf_token=forged")
+        .header("X-CSRF-Token", "forged")
+        .body(Body::from(
+            json!({"name":"Anon","description":"x","price":5.0,"stock_quantity":1}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ─── GET /api/store/orders ────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_list_orders_returns_own_orders_only() {
+    let (app, _state) = setup_test_app().await;
+
+    // Reviewer checks out.
+    let (r_sess, r_csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+    let r_cookie = format!("{}; csrf_token={}", r_sess, r_csrf);
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/store/checkout")
+        .header("content-type", "application/json")
+        .header("cookie", r_cookie)
+        .header("X-CSRF-Token", r_csrf)
+        .body(Body::from(
+            json!({"items":[{"product_id":"prod-book-1","product_name":"X","quantity":1,"unit_price":39.99}]}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Reviewer lists their orders — should see the one they just placed.
+    let (r2_sess, _) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+    let req = Request::builder()
+        .uri("/api/store/orders")
+        .header("cookie", r2_sess)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+    let orders: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+    assert!(!orders.is_empty(), "reviewer should see their own orders");
+
+    // Finance (different user) lists orders — must see 0 of reviewer's orders.
+    let (f_sess, _) = login_as(app.clone(), "finance", "Scholar2024!").await;
+    let req = Request::builder()
+        .uri("/api/store/orders")
+        .header("cookie", f_sess)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+    let finance_orders: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+    assert!(finance_orders.is_empty(), "finance must not see reviewer's orders");
+}
+
+#[tokio::test]
+async fn test_list_orders_anonymous_returns_401() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .uri("/api/store/orders")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
 #[tokio::test]
 async fn test_reviewer_cannot_create_promotion() {
     let (app, _state) = setup_test_app().await;

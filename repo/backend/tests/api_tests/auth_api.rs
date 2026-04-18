@@ -452,3 +452,314 @@ async fn test_seed_users_all_present() {
         .unwrap();
     assert_eq!(count, 5, "seed migration should have inserted 5 users");
 }
+
+// ─── GET /api/auth/me ────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_me_authenticated_returns_user_info() {
+    let (app, _state) = setup_test_app().await;
+    let (session, _csrf) = login_as_admin(app.clone()).await;
+    let req = Request::builder()
+        .uri("/api/auth/me")
+        .header("cookie", session)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["username"], "admin");
+    assert_eq!(body["role"], "administrator");
+    assert!(body["csrf_token"].as_str().unwrap().len() >= 32);
+}
+
+#[tokio::test]
+async fn test_me_anonymous_returns_401() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .uri("/api/auth/me")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ─── GET /api/admin/users ────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_admin_list_users_returns_all_seeded() {
+    let (app, _state) = setup_test_app().await;
+    let (session, _csrf) = login_as_admin(app.clone()).await;
+    let req = Request::builder()
+        .uri("/api/admin/users")
+        .header("cookie", session)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let arr = body.as_array().expect("users must be array");
+    assert!(arr.len() >= 5, "should return all seeded users");
+}
+
+#[tokio::test]
+async fn test_admin_list_users_anonymous_returns_401() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .uri("/api/admin/users")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_admin_list_users_non_admin_returns_403() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"username":"curator","password":"Scholar2024!"}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let mut session = String::new();
+    for h in resp.headers().get_all("set-cookie").iter() {
+        let v = h.to_str().unwrap_or("");
+        if let Some(rest) = v.strip_prefix("sv_session=") {
+            session = format!("sv_session={}", rest.split(';').next().unwrap());
+        }
+    }
+    let req = Request::builder()
+        .uri("/api/admin/users")
+        .header("cookie", session)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+// ─── POST /api/admin/users/:id/role ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_admin_change_role_succeeds() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as_admin(app.clone()).await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/users/u-curator/role")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"role":"reviewer"}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_admin_change_role_anonymous_returns_401() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/users/u-curator/role")
+        .header("content-type", "application/json")
+        .header("cookie", "csrf_token=forged")
+        .header("X-CSRF-Token", "forged")
+        .body(Body::from(json!({"role":"reviewer"}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_admin_change_role_non_admin_returns_403() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"username":"curator","password":"Scholar2024!"}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let mut session = String::new();
+    let mut csrf = String::new();
+    for h in resp.headers().get_all("set-cookie").iter() {
+        let v = h.to_str().unwrap_or("");
+        if let Some(rest) = v.strip_prefix("sv_session=") {
+            session = format!("sv_session={}", rest.split(';').next().unwrap());
+        }
+        if let Some(rest) = v.strip_prefix("csrf_token=") {
+            csrf = rest.split(';').next().unwrap().to_string();
+        }
+    }
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/users/u-reviewer/role")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"role":"administrator"}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_admin_change_role_not_found_returns_404() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as_admin(app.clone()).await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/users/nonexistent-user-id/role")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"role":"reviewer"}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── POST /api/admin/users/:id/active ────────────────────────────────────────
+
+#[tokio::test]
+async fn test_admin_set_active_deactivates_user() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as_admin(app.clone()).await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/users/u-curator/active")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"active":false}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_admin_set_active_anonymous_returns_401() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/users/u-curator/active")
+        .header("content-type", "application/json")
+        .header("cookie", "csrf_token=forged")
+        .header("X-CSRF-Token", "forged")
+        .body(Body::from(json!({"active":false}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_admin_set_active_non_admin_returns_403() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"username":"curator","password":"Scholar2024!"}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let mut session = String::new();
+    let mut csrf = String::new();
+    for h in resp.headers().get_all("set-cookie").iter() {
+        let v = h.to_str().unwrap_or("");
+        if let Some(rest) = v.strip_prefix("sv_session=") {
+            session = format!("sv_session={}", rest.split(';').next().unwrap());
+        }
+        if let Some(rest) = v.strip_prefix("csrf_token=") {
+            csrf = rest.split(';').next().unwrap().to_string();
+        }
+    }
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/users/u-reviewer/active")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"active":false}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+// ─── GET /api/admin/audit ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_admin_audit_log_returns_records() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as_admin(app.clone()).await;
+    // Trigger a mutation to ensure at least one audit record exists.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/users")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf.clone())
+        .body(Body::from(
+            json!({"username":"audit-log-test","password":"Scholar2024!","role":"reviewer"}).to_string(),
+        ))
+        .unwrap();
+    let _ = app.clone().oneshot(req).await.unwrap();
+
+    let req = Request::builder()
+        .uri("/api/admin/audit")
+        .header("cookie", session.clone())
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(body.as_array().map(|a| !a.is_empty()).unwrap_or(false), "audit log must contain records");
+}
+
+#[tokio::test]
+async fn test_admin_audit_log_anonymous_returns_401() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .uri("/api/admin/audit")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_admin_audit_log_non_admin_returns_403() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"username":"curator","password":"Scholar2024!"}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let mut session = String::new();
+    for h in resp.headers().get_all("set-cookie").iter() {
+        let v = h.to_str().unwrap_or("");
+        if let Some(rest) = v.strip_prefix("sv_session=") {
+            session = format!("sv_session={}", rest.split(';').next().unwrap());
+        }
+    }
+    let req = Request::builder()
+        .uri("/api/admin/audit")
+        .header("cookie", session)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}

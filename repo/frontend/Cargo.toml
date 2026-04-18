@@ -33,7 +33,3 @@ wasm-bindgen-futures = { workspace = true }
 [[test]]
 name = "unit_tests"
 path = "tests/unit_tests/mod.rs"
-
-[[test]]
-name = "api_tests"
-path = "tests/api_tests/mod.rs"

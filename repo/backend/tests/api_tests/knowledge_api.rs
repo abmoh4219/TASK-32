@@ -204,6 +204,329 @@ async fn test_invalid_search_backoff_triggers_after_strikes() {
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }
 
+// ─── PUT /api/knowledge/categories/:id ──────────────────────────────────────
+
+#[tokio::test]
+async fn test_update_category_curator_succeeds() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/knowledge/categories/cat-algebra")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({"name":"Algebra Updated","parent_id":"cat-mathematics"}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_update_category_not_found_returns_404() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/knowledge/categories/nonexistent-cat")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"name":"Nope"}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── DELETE /api/knowledge/categories/:id ────────────────────────────────────
+
+#[tokio::test]
+async fn test_delete_category_reviewer_forbidden() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri("/api/knowledge/categories/cat-algebra")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_delete_category_not_found_returns_404() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri("/api/knowledge/categories/does-not-exist")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── GET /api/knowledge/categories/:id/references ────────────────────────────
+
+#[tokio::test]
+async fn test_category_reference_count_returns_count() {
+    let (app, _state) = setup_test_app().await;
+    let (session, _) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .uri("/api/knowledge/categories/cat-algebra/references")
+        .header("cookie", session)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 16 * 1024).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(body["total"].as_i64().is_some(), "must have total field");
+}
+
+// ─── POST /api/knowledge/points ──────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_create_knowledge_point_curator_succeeds() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/knowledge/points")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({
+                "category_id":"cat-algebra",
+                "title":"New KP",
+                "content":"content here",
+                "difficulty":3,
+                "discrimination":0.4,
+                "tags":["algebra"]
+            }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_create_knowledge_point_reviewer_forbidden() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/knowledge/points")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({"category_id":"cat-algebra","title":"Forbidden","content":"x","difficulty":1,"discrimination":0.2,"tags":[]}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+// ─── PUT /api/knowledge/points/:id ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_update_knowledge_point_curator_succeeds() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/knowledge/points/kp-001")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"difficulty":4}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_update_knowledge_point_not_found_returns_404() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/knowledge/points/nonexistent-kp")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"difficulty":2}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── DELETE /api/knowledge/points/:id ────────────────────────────────────────
+
+#[tokio::test]
+async fn test_delete_knowledge_point_curator_succeeds() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri("/api/knowledge/points/kp-003")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_delete_knowledge_point_not_found_returns_404() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri("/api/knowledge/points/does-not-exist")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── POST /api/knowledge/questions ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_create_question_curator_succeeds() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/knowledge/questions")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({
+                "knowledge_point_id": null,
+                "question_text": "What is 2+2?",
+                "question_type": "multiple_choice",
+                "options": ["1","2","3","4"],
+                "correct_answer": "4",
+                "explanation": null,
+                "chapter": null
+            }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_create_question_reviewer_forbidden() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/knowledge/questions")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({"knowledge_point_id":null,"question_text":"x","question_type":"multiple_choice","options":["a"],"correct_answer":"a","explanation":null,"chapter":null}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+// ─── PUT /api/knowledge/questions/:id ────────────────────────────────────────
+
+#[tokio::test]
+async fn test_update_question_not_found_returns_404() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/knowledge/questions/nonexistent-q")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"question_text":"Updated?"}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── DELETE /api/knowledge/questions/:id ─────────────────────────────────────
+
+#[tokio::test]
+async fn test_delete_question_not_found_returns_404() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri("/api/knowledge/questions/nonexistent-q")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── POST /api/knowledge/questions/:id/link ──────────────────────────────────
+
+#[tokio::test]
+async fn test_link_question_to_knowledge_point() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+
+    // Create a question first.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/knowledge/questions")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf.clone())
+        .body(Body::from(
+            json!({
+                "knowledge_point_id": null,
+                "question_text": "Link test question",
+                "question_type": "multiple_choice",
+                "options": ["a","b"],
+                "correct_answer": "a",
+                "explanation": null,
+                "chapter": null
+            }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let q_id = body["id"].as_str().unwrap().to_string();
+
+    // Link to kp-001.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/knowledge/questions/{}/link", q_id))
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"knowledge_point_id":"kp-001"}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
 #[tokio::test]
 async fn test_bulk_apply_oversize_returns_400() {
     let (app, _state) = setup_test_app().await;

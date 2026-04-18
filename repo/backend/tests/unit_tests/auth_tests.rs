@@ -2,7 +2,7 @@
 //! These tests do NOT touch HTTP — they exercise the service-layer functions
 //! directly so we can prove the security logic in isolation.
 
-use backend::security::{encryption, password};
+use backend::security::{csrf, encryption, password};
 
 #[test]
 fn test_password_hash_and_verify() {
@@ -72,4 +72,41 @@ fn test_phc_hash_from_seed_format_parses() {
         password::verify_password("ScholarAdmin2024!", seed_hash).unwrap(),
         "seeded admin hash must verify against the documented password"
     );
+}
+
+#[test]
+fn test_csrf_token_is_64_hex_chars() {
+    let token = csrf::generate_token();
+    assert_eq!(token.len(), 64, "CSRF token must be 64 hex chars (32 random bytes)");
+    assert!(token.chars().all(|c| c.is_ascii_hexdigit()), "must be hex");
+}
+
+#[test]
+fn test_csrf_tokens_are_unique() {
+    let a = csrf::generate_token();
+    let b = csrf::generate_token();
+    assert_ne!(a, b, "successive CSRF tokens must differ");
+}
+
+#[test]
+fn test_decrypt_field_rejects_too_short_input() {
+    let key = [1u8; 32];
+    let result = encryption::decrypt_field("dG9vc2hvcnQ=", &key); // "tooshort" base64 — only 7 bytes
+    assert!(result.is_err(), "decryption of data < 12 bytes must fail");
+}
+
+#[test]
+fn test_encrypt_decrypt_bytes_roundtrip() {
+    let key = [9u8; 32];
+    let plaintext = b"binary evidence bytes 1234";
+    let encrypted = encryption::encrypt_bytes(plaintext, &key).expect("encrypt_bytes");
+    let decrypted = encryption::decrypt_bytes(&encrypted, &key).expect("decrypt_bytes");
+    assert_eq!(decrypted, plaintext);
+}
+
+#[test]
+fn test_decrypt_bytes_rejects_too_short_input() {
+    let key = [2u8; 32];
+    let result = encryption::decrypt_bytes(&[0u8; 5], &key);
+    assert!(result.is_err(), "decryption of blob < 12 bytes must fail");
 }

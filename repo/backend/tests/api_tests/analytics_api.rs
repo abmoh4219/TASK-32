@@ -274,6 +274,90 @@ async fn test_schedule_report_with_filters() {
     assert_eq!(filters["category"], "grants");
 }
 
+// ─── POST /api/analytics/export/pdf ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_export_pdf_finance_returns_pdf() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "finance", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/analytics/export/pdf")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            json!({"report_type":"fund","period":null}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let ct = resp.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(ct.contains("pdf"), "expected PDF content-type, got {}", ct);
+}
+
+#[tokio::test]
+async fn test_export_pdf_curator_forbidden() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/analytics/export/pdf")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(json!({"report_type":"fund","period":null}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+// ─── GET /api/analytics/reports ──────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_list_reports_returns_own_reports() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "finance", "Scholar2024!").await;
+
+    // Schedule one report first.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/analytics/reports/schedule")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf.clone())
+        .body(Body::from(json!({"report_type":"fund","format":"csv","period":null}).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let req = Request::builder()
+        .uri("/api/analytics/reports")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+    let reports: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+    assert!(!reports.is_empty(), "should have at least one report");
+    assert!(reports.iter().all(|r| r["report_type"] == "fund" || r.get("report_type").is_some()));
+}
+
+#[tokio::test]
+async fn test_list_reports_anonymous_returns_401() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .uri("/api/analytics/reports")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
 #[tokio::test]
 async fn test_download_report_requires_auth_and_ownership() {
     // Regression: the download endpoint used to be reachable by anyone in

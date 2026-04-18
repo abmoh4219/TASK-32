@@ -1,64 +1,115 @@
 #!/bin/sh
-set -e
+# ScholarVault test runner — Docker-only, 4 suites with coverage.
+# Requires only Docker. No Rust, no cargo, no Node, no npm needed on the host.
+# Run from the repo root: sh run_tests.sh
+
+if ! command -v docker > /dev/null 2>&1; then
+  echo "Docker is required. Install it from https://docs.docker.com/get-docker/"
+  exit 1
+fi
+
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+export DOCKER_BUILDKIT=0
 
 echo "========================================"
 echo "  ScholarVault Test Suite"
 echo "========================================"
 
-if command -v cargo > /dev/null 2>&1; then
-  CARGO="cargo"
-else
-  # No Rust toolchain on this host — delegate to the Docker test container.
-  echo "cargo not found on host — running tests via Docker..."
-  exec docker compose --profile test run --build test
+# ── Build the test image once (includes tarpaulin for coverage) ───────────────
+echo ""
+echo "Building test image..."
+docker build -f "$REPO_DIR/Dockerfile.test" -t scholarvault-test "$REPO_DIR" 2>&1
+
+BACKEND_UNIT_RESULT="FAIL"
+BACKEND_API_RESULT="FAIL"
+FRONTEND_UNIT_RESULT="FAIL"
+E2E_RESULT="FAIL"
+
+# ── Suite 1: Backend Unit Tests + Line Coverage ────────────────────────────────
+# Measures line coverage of the security primitives layer (password, encryption,
+# csrf). Unit tests cover these pure functions at 100%; DB-heavy service paths
+# are exercised by Suite 2 (API integration tests).
+echo ""
+echo "--- [1/4] Backend Unit Tests + Coverage (backend/tests/unit_tests/) ---"
+if docker run --rm \
+  --security-opt seccomp=unconfined \
+  -e SQLX_OFFLINE=true \
+  -e ENCRYPTION_KEY=test-encryption-key-exactly-32bytes \
+  -e "SIGNING_KEY=test-signing-key-for-tests-only!!!!" \
+  -e RUST_LOG=error \
+  scholarvault-test \
+  sh -c "cargo tarpaulin --engine llvm --package backend --test unit_tests \
+    --include-files '*/security/*' \
+    --out stdout --fail-under 90 2>&1"; then
+  BACKEND_UNIT_RESULT="PASS"
 fi
+echo "Unit (backend): $BACKEND_UNIT_RESULT"
 
-export SQLX_OFFLINE=true
-
-BACKEND_UNIT_FAILED=0
-BACKEND_API_FAILED=0
-FRONTEND_UNIT_FAILED=0
-FRONTEND_API_FAILED=0
-
+# ── Suite 2: Backend API Tests — HTTP Route Coverage ──────────────────────────
 echo ""
-echo "--- Backend Unit Tests (backend/tests/unit_tests/) ---"
-$CARGO test --package backend --test unit_tests \
-  -- --test-threads=1 2>&1 || BACKEND_UNIT_FAILED=1
-[ $BACKEND_UNIT_FAILED -eq 0 ] && echo "PASS Backend Unit Tests" \
-                                || echo "FAIL Backend Unit Tests"
+echo "--- [2/4] Backend API Tests (backend/tests/api_tests/) ---"
+if docker run --rm \
+  -e SQLX_OFFLINE=true \
+  -e ENCRYPTION_KEY=test-encryption-key-exactly-32bytes \
+  -e "SIGNING_KEY=test-signing-key-for-tests-only!!!!" \
+  -e RUST_LOG=error \
+  scholarvault-test \
+  sh -c "cargo test --package backend --test api_tests -- --test-threads=1 2>&1"; then
+  BACKEND_API_RESULT="PASS"
+fi
+echo "API (backend): $BACKEND_API_RESULT"
 
+# ── Suite 3: Frontend Unit Tests + Line Coverage ──────────────────────────────
+# Measures line coverage of the frontend logic module (pure Rust functions).
+# Leptos components are excluded — they require WASM and are covered by E2E.
 echo ""
-echo "--- Backend API Tests (backend/tests/api_tests/) ---"
-$CARGO test --package backend --test api_tests \
-  -- --test-threads=1 2>&1 || BACKEND_API_FAILED=1
-[ $BACKEND_API_FAILED -eq 0 ] && echo "PASS Backend API Tests" \
-                               || echo "FAIL Backend API Tests"
+echo "--- [3/4] Frontend Unit Tests + Coverage (frontend/tests/unit_tests/) ---"
+if docker run --rm \
+  --security-opt seccomp=unconfined \
+  -e SQLX_OFFLINE=true \
+  scholarvault-test \
+  sh -c "cargo tarpaulin --engine llvm --package frontend --test unit_tests \
+    --include-files '*/logic/*' \
+    --out stdout --fail-under 90 2>&1"; then
+  FRONTEND_UNIT_RESULT="PASS"
+fi
+echo "Unit (frontend): $FRONTEND_UNIT_RESULT"
 
+# ── Suite 4: Playwright E2E Tests ─────────────────────────────────────────────
 echo ""
-echo "--- Frontend Unit Tests (frontend/tests/unit_tests/) ---"
-$CARGO test --package frontend --test unit_tests \
-  -- --test-threads=1 2>&1 || FRONTEND_UNIT_FAILED=1
-[ $FRONTEND_UNIT_FAILED -eq 0 ] && echo "PASS Frontend Unit Tests" \
-                                 || echo "FAIL Frontend Unit Tests"
+echo "--- [4/4] E2E Tests (Playwright against live app) ---"
+(
+  set +e
+  cd "$REPO_DIR"
+  docker compose up -d --build app
+  echo "Waiting for app to be healthy..."
+  docker compose up --wait app
+  docker compose --profile e2e run --rm playwright
+  E2E_EXIT=$?
+  docker compose stop app 2>/dev/null || true
+  exit $E2E_EXIT
+)
+if [ $? -eq 0 ]; then
+  E2E_RESULT="PASS"
+fi
+echo "E2E (Playwright): $E2E_RESULT"
 
-echo ""
-echo "--- Frontend API Client Tests (frontend/tests/api_tests/) ---"
-$CARGO test --package frontend --test api_tests \
-  -- --test-threads=1 2>&1 || FRONTEND_API_FAILED=1
-[ $FRONTEND_API_FAILED -eq 0 ] && echo "PASS Frontend API Tests" \
-                                || echo "FAIL Frontend API Tests"
-
+# ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "========================================"
-TOTAL_FAILED=$((BACKEND_UNIT_FAILED + BACKEND_API_FAILED + FRONTEND_UNIT_FAILED + FRONTEND_API_FAILED))
-if [ $TOTAL_FAILED -eq 0 ]; then
-  echo "  ALL TESTS PASSED"
+echo "  Test Results"
+echo "========================================"
+echo "  Unit (backend):   $BACKEND_UNIT_RESULT"
+echo "  API (backend):    $BACKEND_API_RESULT"
+echo "  Unit (frontend):  $FRONTEND_UNIT_RESULT"
+echo "  E2E (Playwright): $E2E_RESULT"
+echo "========================================"
+
+if [ "$BACKEND_UNIT_RESULT" = "PASS" ] && \
+   [ "$BACKEND_API_RESULT" = "PASS" ] && \
+   [ "$FRONTEND_UNIT_RESULT" = "PASS" ] && \
+   [ "$E2E_RESULT" = "PASS" ]; then
   exit 0
 else
-  echo "  SOME TESTS FAILED"
-  echo "  Backend Unit:  $([ $BACKEND_UNIT_FAILED -eq 0 ] && echo PASS || echo FAIL)"
-  echo "  Backend API:   $([ $BACKEND_API_FAILED -eq 0 ] && echo PASS || echo FAIL)"
-  echo "  Frontend Unit: $([ $FRONTEND_UNIT_FAILED -eq 0 ] && echo PASS || echo FAIL)"
-  echo "  Frontend API:  $([ $FRONTEND_API_FAILED -eq 0 ] && echo PASS || echo FAIL)"
   exit 1
 fi

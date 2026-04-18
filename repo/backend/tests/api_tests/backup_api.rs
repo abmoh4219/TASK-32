@@ -295,6 +295,131 @@ async fn test_restore_activation_applies_db_file_to_live_path() {
     assert!(row.0.is_some(), "restored_at must be stamped after activation");
 }
 
+// ─── POST /api/backup/:id/activate ───────────────────────────────────────────
+
+#[tokio::test]
+async fn test_activate_backup_files_artifact_succeeds() {
+    // The files artifact passes sandbox validation (hash + unpack only,
+    // no live db integrity check), so activation succeeds in the test env.
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "admin", "ScholarAdmin2024!").await;
+    let cookie = format!("{}; csrf_token={}", session, csrf);
+
+    // Run a backup.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/backup/run")
+        .header("cookie", cookie.clone())
+        .header("X-CSRF-Token", csrf.clone())
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Get history and find the files artifact.
+    let req = Request::builder()
+        .uri("/api/backup/history")
+        .header("cookie", cookie.clone())
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+    let rows: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+    let files_id = rows.iter()
+        .find(|r| r["artifact_kind"] == "files")
+        .and_then(|r| r["id"].as_str())
+        .expect("files artifact must exist")
+        .to_string();
+
+    // Activate the files artifact.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/backup/{}/activate", files_id))
+        .header("cookie", cookie)
+        .header("X-CSRF-Token", csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    // Files artifact activation succeeds (200) or may return 409 only for
+    // database artifacts needing integrity_check. Accept 200 here.
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_activate_backup_anonymous_returns_401() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/backup/some-id/activate")
+        .header("cookie", "csrf_token=forged")
+        .header("X-CSRF-Token", "forged")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_activate_backup_not_found_returns_404() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "admin", "ScholarAdmin2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/backup/nonexistent-backup-id/activate")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── POST /api/backup/lifecycle-cleanup ─────────────────────────────────────
+
+#[tokio::test]
+async fn test_lifecycle_cleanup_admin_succeeds() {
+    let (app, _state) = setup_test_app().await;
+    let (session, csrf) = login_as(app.clone(), "admin", "ScholarAdmin2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/backup/lifecycle-cleanup")
+        .header("cookie", format!("{}; csrf_token={}", session, csrf))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_lifecycle_cleanup_anonymous_returns_401() {
+    let (app, _state) = setup_test_app().await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/backup/lifecycle-cleanup")
+        .header("cookie", "csrf_token=forged")
+        .header("X-CSRF-Token", "forged")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_lifecycle_cleanup_curator_forbidden() {
+    let (app, _state) = setup_test_app().await;
+    let (c_sess, c_csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/backup/lifecycle-cleanup")
+        .header("cookie", format!("{}; csrf_token={}", c_sess, c_csrf))
+        .header("X-CSRF-Token", c_csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
 #[tokio::test]
 async fn test_retention_policy_admin_can_update_others_cannot() {
     let (app, _state) = setup_test_app().await;

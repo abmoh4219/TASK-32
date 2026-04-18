@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.6
 # ScholarVault — multi-stage build (frontend WASM via trunk + backend Axum binary)
 
 # ============================================================
@@ -26,7 +25,7 @@ RUN rustup target add wasm32-unknown-unknown
 # memory by avoiding a full git clone of the crates.io index.
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 RUN CARGO_BUILD_JOBS=1 cargo install --locked trunk --version 0.20.3 --jobs 1
-RUN CARGO_BUILD_JOBS=1 cargo install --locked wasm-bindgen-cli --version 0.2.95 --jobs 1 || true
+RUN CARGO_BUILD_JOBS=1 cargo install --locked wasm-bindgen-cli --version 0.2.118 --jobs 1 || true
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
@@ -72,7 +71,7 @@ RUN cargo build --release --package backend --bin scholarvault
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 sqlite3 \
+    ca-certificates libssl3 sqlite3 curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

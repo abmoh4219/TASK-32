@@ -501,6 +501,184 @@ async fn test_outcomes_visibility_scoped_to_creator_or_contributor() {
     );
 }
 
+// ─── POST /api/outcomes/:id/approve ─────────────────────────────────────────
+
+#[tokio::test]
+async fn test_approve_outcome_reviewer_succeeds() {
+    let (app, _state) = setup_test_app().await;
+
+    // Create + add 100% contributor + submit as reviewer.
+    let (r_sess, r_csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+    let r_cookie = format!("{}; csrf_token={}", r_sess, r_csrf);
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/outcomes")
+        .header("content-type", "application/json")
+        .header("cookie", r_cookie.clone())
+        .header("X-CSRF-Token", r_csrf.clone())
+        .body(Body::from(
+            json!({"type":"paper","title":"Approve Test","abstract_snippet":"x","certificate_number":null}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let outcome_id = serde_json::from_slice::<Value>(&bytes).unwrap()["outcome"]["id"]
+        .as_str().unwrap().to_string();
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/outcomes/{}/contributors", outcome_id))
+        .header("content-type", "application/json")
+        .header("cookie", r_cookie.clone())
+        .header("X-CSRF-Token", r_csrf.clone())
+        .body(Body::from(
+            json!({"user_id":"u-reviewer","share_percentage":100,"role_in_work":"author"}).to_string(),
+        ))
+        .unwrap();
+    app.clone().oneshot(req).await.unwrap();
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/outcomes/{}/submit", outcome_id))
+        .header("cookie", r_cookie)
+        .header("X-CSRF-Token", r_csrf.clone())
+        .body(Body::empty())
+        .unwrap();
+    app.clone().oneshot(req).await.unwrap();
+
+    // Approve as reviewer.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/outcomes/{}/approve", outcome_id))
+        .header("cookie", format!("{}; csrf_token={}", r_sess, r_csrf))
+        .header("X-CSRF-Token", r_csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_approve_outcome_curator_forbidden() {
+    let (app, _state) = setup_test_app().await;
+    let (c_sess, c_csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/outcomes/any-id/approve")
+        .header("cookie", format!("{}; csrf_token={}", c_sess, c_csrf))
+        .header("X-CSRF-Token", c_csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_approve_outcome_draft_returns_conflict() {
+    // approve on a draft (not submitted) must return 409.
+    let (app, _state) = setup_test_app().await;
+    let (r_sess, r_csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/outcomes")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", r_sess, r_csrf))
+        .header("X-CSRF-Token", r_csrf.clone())
+        .body(Body::from(
+            json!({"type":"paper","title":"Draft Approve Test","abstract_snippet":"x","certificate_number":null}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let outcome_id = serde_json::from_slice::<Value>(&bytes).unwrap()["outcome"]["id"]
+        .as_str().unwrap().to_string();
+
+    // Try to approve without submitting first.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/outcomes/{}/approve", outcome_id))
+        .header("cookie", format!("{}; csrf_token={}", r_sess, r_csrf))
+        .header("X-CSRF-Token", r_csrf)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+}
+
+// ─── POST /api/outcomes/:id/reject ───────────────────────────────────────────
+
+#[tokio::test]
+async fn test_reject_outcome_reviewer_succeeds() {
+    let (app, _state) = setup_test_app().await;
+    let (r_sess, r_csrf) = login_as(app.clone(), "reviewer", "Scholar2024!").await;
+    let r_cookie = format!("{}; csrf_token={}", r_sess, r_csrf);
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/outcomes")
+        .header("content-type", "application/json")
+        .header("cookie", r_cookie.clone())
+        .header("X-CSRF-Token", r_csrf.clone())
+        .body(Body::from(
+            json!({"type":"paper","title":"Reject Test","abstract_snippet":"x","certificate_number":null}).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let outcome_id = serde_json::from_slice::<Value>(&bytes).unwrap()["outcome"]["id"]
+        .as_str().unwrap().to_string();
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/outcomes/{}/contributors", outcome_id))
+        .header("content-type", "application/json")
+        .header("cookie", r_cookie.clone())
+        .header("X-CSRF-Token", r_csrf.clone())
+        .body(Body::from(
+            json!({"user_id":"u-reviewer","share_percentage":100,"role_in_work":"author"}).to_string(),
+        ))
+        .unwrap();
+    app.clone().oneshot(req).await.unwrap();
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/outcomes/{}/submit", outcome_id))
+        .header("cookie", r_cookie)
+        .header("X-CSRF-Token", r_csrf.clone())
+        .body(Body::empty())
+        .unwrap();
+    app.clone().oneshot(req).await.unwrap();
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/outcomes/{}/reject", outcome_id))
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", r_sess, r_csrf))
+        .header("X-CSRF-Token", r_csrf)
+        .body(Body::from(json!({"reason":"test rejection"}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_reject_outcome_curator_forbidden() {
+    let (app, _state) = setup_test_app().await;
+    let (c_sess, c_csrf) = login_as(app.clone(), "curator", "Scholar2024!").await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/outcomes/any-id/reject")
+        .header("content-type", "application/json")
+        .header("cookie", format!("{}; csrf_token={}", c_sess, c_csrf))
+        .header("X-CSRF-Token", c_csrf)
+        .body(Body::from(json!({"reason":"forbidden"}).to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
 #[tokio::test]
 async fn test_outcomes_read_endpoints_reject_anonymous() {
     // Regression: list/get/compare used to be openly readable. Confirm they now
