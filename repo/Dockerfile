@@ -1,4 +1,5 @@
 # ScholarVault — multi-stage build (frontend WASM via trunk + backend Axum binary)
+# syntax=docker/dockerfile:1
 
 # ============================================================
 # Stage 1: WASM frontend builder
@@ -16,16 +17,16 @@ ENV CARGO_NET_RETRY=10
 ENV CARGO_HTTP_TIMEOUT=300
 ENV CARGO_HTTP_LOW_SPEED_LIMIT=0
 ENV CARGO_HTTP_MULTIPLEXING=false
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 RUN rustup target add wasm32-unknown-unknown
 
-# Limit parallelism to 1 job during `cargo install` to avoid OOM kills in
-# low-memory CI environments (the minify-html-common crate in trunk's dep
-# tree is particularly heavy).  Sparse registry protocol also reduces peak
-# memory by avoiding a full git clone of the crates.io index.
-ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-RUN CARGO_BUILD_JOBS=1 cargo install --locked trunk --version 0.20.3 --jobs 1
-RUN CARGO_BUILD_JOBS=1 cargo install --locked wasm-bindgen-cli --version 0.2.118 --jobs 1 || true
+RUN curl -fsSL \
+    "https://github.com/thedodd/trunk/releases/download/v0.20.3/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+    | tar -xzC /usr/local/bin
+RUN curl -fsSL \
+    "https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.118/wasm-bindgen-0.2.118-x86_64-unknown-linux-musl.tar.gz" \
+    | tar -xzC /usr/local/bin --strip-components=1 || true
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
@@ -38,7 +39,10 @@ COPY tailwind.config.js ./
 
 # Build the frontend WASM bundle into ./dist
 ENV SQLX_OFFLINE=true
-RUN trunk build --release --filehash false
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/build/target \
+    trunk build --release --filehash false
 
 # ============================================================
 # Stage 2: Backend Rust binary builder
@@ -53,6 +57,7 @@ ENV CARGO_NET_RETRY=10
 ENV CARGO_HTTP_TIMEOUT=300
 ENV CARGO_HTTP_LOW_SPEED_LIMIT=0
 ENV CARGO_HTTP_MULTIPLEXING=false
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
@@ -63,7 +68,12 @@ COPY backend ./backend
 COPY frontend ./frontend
 
 ENV SQLX_OFFLINE=true
-RUN cargo build --release --package backend --bin scholarvault
+# Build with persistent cargo and target caches so incremental rebuilds are fast.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/build/target \
+    cargo build --release --package backend --bin scholarvault && \
+    cp /build/target/release/scholarvault /scholarvault
 
 # ============================================================
 # Stage 3: Slim runtime
@@ -76,7 +86,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY --from=backend-builder /build/target/release/scholarvault /app/scholarvault
+COPY --from=backend-builder /scholarvault /app/scholarvault
 COPY --from=wasm-builder /build/dist /app/dist
 COPY backend/src/db/migrations /app/migrations
 

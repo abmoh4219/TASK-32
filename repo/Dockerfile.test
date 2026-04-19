@@ -1,12 +1,23 @@
 # ScholarVault test runner — runs the 4 cargo test suites via run_tests.sh
+# syntax=docker/dockerfile:1
 FROM rust:slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev ca-certificates sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Add LLVM tools (required by cargo-tarpaulin --engine llvm)
 RUN rustup component add llvm-tools-preview
+
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+ENV SQLX_OFFLINE=true
+ENV CARGO_TERM_COLOR=always
+
+# Install cargo-tarpaulin BEFORE copying source so this expensive layer stays
+# cached in Docker even when source files change.  Use a BuildKit cache for the
+# cargo registry during the install so we download fewer bytes on rebuilds.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo install cargo-tarpaulin --locked
 
 WORKDIR /workspace
 
@@ -16,13 +27,10 @@ COPY backend ./backend
 COPY frontend ./frontend
 COPY run_tests.sh ./run_tests.sh
 
-ENV SQLX_OFFLINE=true
-ENV CARGO_TERM_COLOR=always
-
 RUN chmod +x run_tests.sh
-RUN cargo fetch
 
-# Install cargo-tarpaulin for code coverage (compiled once, cached in image layer)
-RUN cargo install cargo-tarpaulin --locked
+# Pre-fetch all workspace dependencies into the image layer (NOT a cache mount)
+# so that docker run containers find the registry without network access.
+RUN cargo fetch
 
 CMD ["sh", "run_tests.sh"]

@@ -6,11 +6,15 @@ export default defineConfig({
   retries: 1,
   workers: 1,
   reporter: 'list',
+  timeout: 30000,
+  globalTimeout: 300000,
   use: {
     baseURL: process.env.BASE_URL ?? 'http://localhost:3000',
     headless: true,
     ignoreHTTPSErrors: true,
     trace: 'on-first-retry',
+    actionTimeout: 15000,
+    navigationTimeout: 15000,
   },
   projects: [
     {
